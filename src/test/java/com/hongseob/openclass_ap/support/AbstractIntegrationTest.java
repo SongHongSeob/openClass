@@ -1,0 +1,30 @@
+package com.hongseob.openclass_ap.support;
+
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+/**
+ * 실제 PostgreSQL 인스턴스가 필요한 통합 테스트의 공통 베이스 클래스.
+ * (SPEC-AUTH-001 plan.md §D — 유니크 제약 동작은 H2가 아닌 실제 PostgreSQL로 검증해야 한다.)
+ *
+ * <p>컨테이너는 테스트 JVM당 1회(static 필드) 기동되며, 연결 정보는
+ * {@code @ServiceConnection}으로 주입된다. 이는 어떤 {@code spring.datasource.*}
+ * 프로퍼티보다 우선하므로 활성 프로파일과 무관하게 동작하고, 개발자의 로컬
+ * Supabase 자격 증명을 건드리지 않는다.</p>
+ */
+@Testcontainers
+@ActiveProfiles("test")
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=create-drop"
+})
+public abstract class AbstractIntegrationTest {
+
+    @Container
+    @ServiceConnection
+    static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:16-alpine");
+}
