@@ -1,0 +1,26 @@
+# Local development datasource — Supabase (PostgreSQL)
+#
+# HOW TO USE:
+#   1. Copy this file to application-local.properties (same folder).
+#      application-local.properties is already gitignored — it will
+#      never be committed, so it's safe to put your real password there.
+#   2. Get the values below from your Supabase project dashboard:
+#      Project Settings -> Database -> Connection string (URI tab).
+#   3. Fill in <YOUR_...> placeholders with your real values.
+#
+# NOTE ON CONNECTION MODE:
+#   Supabase offers a "Direct connection" and a "Transaction pooler".
+#   For this project, use the DIRECT connection (port 5432, host like
+#   db.<project-ref>.supabase.co) — later SPECs use PostgreSQL advisory
+#   locks (pg_advisory_xact_lock) for the first-come-first-served
+#   enrollment feature, which behaves most predictably on a direct
+#   session connection rather than a transaction-mode pooler.
+
+spring.datasource.url=jdbc:postgresql://db.<YOUR_PROJECT_REF>.supabase.co:5432/postgres
+spring.datasource.username=postgres
+spring.datasource.password=<YOUR_DB_PASSWORD>
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
