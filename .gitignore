@@ -43,3 +43,8 @@ application-local.yml
 .env
 .env.*
 !.env.example
+
+### MoAI-ADK runtime state/logs (regenerated every session, not source) ###
+.moai/state/
+.moai/logs/
+.moai/cache/
