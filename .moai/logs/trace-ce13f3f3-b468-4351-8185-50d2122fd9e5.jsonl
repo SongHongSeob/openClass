@@ -1,0 +1,9 @@
+{"ts":"2026-08-15T15:16:09.481408083+09:00","event":"SessionStart","handler":"*hook.sessionStartHandler","duration_ms":9,"session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T15:16:09.491252959+09:00","event":"SessionStart","handler":"*hook.autoUpdateHandler","duration_ms":1457,"session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T16:20:58.100411083+09:00","event":"InstructionsLoaded","handler":"*hook.instructionsLoadedHandler","duration_ms":0,"session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T16:27:07.068887167+09:00","event":"PreToolUse","handler":"*hook.preToolHandler","tool":"Write","duration_ms":0,"decision":"allow","session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T16:34:13.91328475+09:00","event":"PostToolUse","handler":"*hook.postToolHandler","tool":"Write","duration_ms":1,"session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T19:23:50.112612042+09:00","event":"InstructionsLoaded","handler":"*hook.instructionsLoadedHandler","duration_ms":0,"session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T19:48:13.220999917+09:00","event":"PostToolUse","handler":"*hook.postToolHandler","tool":"Edit","duration_ms":0,"session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T19:48:19.491915292+09:00","event":"PreToolUse","handler":"*hook.preToolHandler","tool":"Edit","duration_ms":0,"decision":"allow","session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}
+{"ts":"2026-08-15T19:50:39.242460083+09:00","event":"PostToolUse","handler":"*hook.postToolHandler","tool":"Edit","duration_ms":0,"session_id":"ce13f3f3-b468-4351-8185-50d2122fd9e5"}

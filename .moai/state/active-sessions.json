@@ -1,0 +1,12 @@
+[
+  {
+    "session_id": "ce13f3f3-b468-4351-8185-50d2122fd9e5",
+    "spec_id": "(none)",
+    "phase": "(none)",
+    "started_at": "2026-08-15T06:16:09.481449Z",
+    "last_heartbeat": "2026-08-15T06:16:09.481449Z",
+    "pid": 61626,
+    "host": "songhongseob-ui-MacBookPro.local",
+    "cwd": "/Users/songhongseob/vsCodeWorkSpace/openclass-ap"
+  }
+]
