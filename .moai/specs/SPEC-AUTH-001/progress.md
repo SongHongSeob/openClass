@@ -122,6 +122,34 @@ tier: M
 - 전체 스위트(`./gradlew test`, 29개 테스트)를 5회 반복 실행한 결과 매번 3~7건이 간헐적으로 실패 — **원인은 코드가 아니라 이 개발 환경의 Docker 자원 경합**으로 판단함(근거: (1) 실패하는 테스트 클래스가 매회 달라짐, (2) 실패 스택트레이스가 매번 동일하게 `HikariPool ... Connection refused/timed out after 30s` — DB 연결 자체의 문제이지 애플리케이션 로직 assertion 실패가 아님, (3) 격리 실행 시 100% 통과, (4) Docker Desktop에 7.75GiB만 할당되어 있고 상시 구동 중인 다른 컨테이너(n8n)와 자원을 공유함)
 - **잔여 위험(Residual risk)**: 이 환경에서 전체 테스트 스위트를 한 번에 돌리면 재시도가 필요할 수 있음. 코드 정확성 자체는 격리 실행으로 검증되었으므로 커밋을 막지 않기로 판단함. `SPEC-ENROLLMENT-001`도 Testcontainers를 요구하므로 동일한 환경 이슈가 재발할 수 있음 — 후속 SPEC 진입 시 참고할 것.
 
+### M3 — 필터 체인 및 인가 (완료)
+
+**신규 산출물**:
+- `src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java` — `SecurityFilterChain` Bean. STATELESS, CSRF 비활성화(근거 주석 포함), 경로 인가(`/api/auth/**`+`GET /api/courses` permitAll, `/api/admin/**` hasRole(ADMIN), 그 외 authenticated), 401/403을 명시적 `AuthenticationEntryPoint`/`AccessDeniedHandler`로 구분
+- `src/main/java/com/hongseob/openclass_ap/member/jwt/JwtAuthenticationFilter.java` — `Authorization: Bearer` 헤더 검증, `HttpSession` 미사용
+- `src/test/java/com/hongseob/openclass_ap/member/fixture/AuthTestFixtureController.java` — `@TestConfiguration` + `@RestController`(컴포넌트 스캔·수동 등록 충돌 회피를 위해 같은 클래스에 결합), `GET /api/test/protected` + `GET /api/admin/test-ping`, `SecurityConfig` 미수정
+- `src/test/java/com/hongseob/openclass_ap/member/AuthorizationIntegrationTest.java`(6 테스트), `src/test/java/com/hongseob/openclass_ap/member/jwt/JwtAuthenticationFilterTest.java`(3 테스트)
+- `application.properties`의 M1 임시 `spring.autoconfigure.exclude` 줄 제거 완료(주석으로 제거 사실 기록)
+
+**AC PASS/FAIL 매트릭스** (M3 대응분 AC-AUTH-010~015):
+
+| AC | Status | Verification | Evidence |
+|----|--------|--------------|----------|
+| AC-AUTH-010 (토큰 없음 차단) | PASS | `AuthorizationIntegrationTest.토큰없이_보호_엔드포인트를_호출하면_401이_반환된다` | 401 확인 |
+| AC-AUTH-011 (위조·만료 토큰 차단) | PASS | `AuthorizationIntegrationTest.위조되거나_만료된_토큰이면_401이_반환되고_핸들러에_도달하지_않는다` | 변조 서명 + 만료 토큰 각각 401, 픽스처 핸들러 호출 카운터 0 확인 |
+| AC-AUTH-012 (MEMBER→관리자 엔드포인트 403) | PASS | `AuthorizationIntegrationTest.MEMBER_역할_토큰으로_관리자_엔드포인트를_호출하면_403이_반환된다` | 403 확인(401 아님 — 인증은 됐으나 인가 실패) |
+| AC-AUTH-013 (ADMIN→관리자 엔드포인트 허용) | PASS | `AuthorizationIntegrationTest.ADMIN_역할_토큰으로_관리자_엔드포인트를_호출하면_200이_반환된다` | 200 + 픽스처 응답 도달 확인 |
+| AC-AUTH-014 (무상태 검증) | PASS | `AuthorizationIntegrationTest.동일_토큰으로_20회_호출해도_전부_성공하고_세션_쿠키가_생기지_않는다` | 20회 반복 호출 전부 성공, `Set-Cookie: JSESSIONID` 미포함 확인 |
+| AC-AUTH-015 (공개 엔드포인트 무토큰 접근) | PASS | `AuthorizationIntegrationTest.공개_엔드포인트는_토큰없이_호출해도_401이_아니다` | 회원가입/로그인 엔드포인트가 토큰 없이도 401이 아님 확인 |
+
+**M3 완료 조건(HARD 게이트) 검증**: `grep -rn "/api/test/" src/main` → **0건**. 픽스처가 `src/test`에만 존재함을 확인.
+
+**빌드/테스트 검증 (오케스트레이터 직접 재확인 — develop-auth-m3 에이전트 세션이 응답 없이 종료되어 직접 이어받아 검증함)**:
+- develop-auth-m3는 코드 작성을 완료했으나(`SecurityConfig`/`JwtAuthenticationFilter`/픽스처/테스트 전부 존재), M2와 동일한 Docker/Testcontainers 자원 경합으로 전체 스위트 재시도를 반복하다 세션이 응답 없이 종료됨. 이미 실행 중이던 백그라운드 `./gradlew test jacocoTestReport` 프로세스는 계속 진행되어 완료됨(로그: `/tmp/gradle-build-attempt3.log`).
+- 그 결과(38 테스트 중 7건 실패)를 직접 분석: 실패는 전부 `SignupIntegrationTest`(M1, M3와 무관)에서 발생했고 원인은 M1/M2에서 이미 기록한 것과 동일한 `HikariPool ... Connection refused/timed out` — M3 신규 테스트(`AuthorizationIntegrationTest` 6/6, `JwtAuthenticationFilterTest` 3/3)는 그 실행에서 **전부 통과**(XML 리포트 `failures="0" errors="0"` 직접 확인)
+- 코드 리뷰: `SecurityConfig`/`JwtAuthenticationFilter`/픽스처 컨트롤러 3개 파일을 직접 읽고 plan.md §C.3/§C.5.1/§G 제약(STATELESS, CSRF 비활성화 근거, 경로 규칙, 401/403 구분, 픽스처의 SecurityConfig 미수정, 세션 미사용) 전부 충족 확인
+- **잔여 위험**: M2와 동일한 환경 이슈(§E.2 M2 절 참조). 코드 정확성은 위 근거로 검증되어 커밋을 막지 않기로 판단함.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_
