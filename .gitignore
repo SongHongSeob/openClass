@@ -48,3 +48,6 @@ application-local.yml
 .moai/state/
 .moai/logs/
 .moai/cache/
+.moai/evolution/telemetry/
+.moai/harness/usage-log.jsonl
+.moai/lessons-inbox.jsonl
