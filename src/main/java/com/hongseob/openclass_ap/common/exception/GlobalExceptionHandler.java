@@ -19,4 +19,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ErrorResponse.of("DUPLICATE_EMAIL", ex.getMessage()));
     }
+
+    /**
+     * 로그인 실패는 사유(미가입/비밀번호 불일치)와 무관하게 항상 동일한 401 바디를
+     * 반환한다 — 고정된 code/message만 사용하므로 응답이 바이트 단위로 동일하다
+     * (AC-AUTH-008).
+     */
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ErrorResponse.of("INVALID_CREDENTIALS", ex.getMessage()));
+    }
 }

@@ -1,7 +1,10 @@
 package com.hongseob.openclass_ap.member;
 
+import com.hongseob.openclass_ap.member.dto.LoginRequest;
+import com.hongseob.openclass_ap.member.dto.LoginResponse;
 import com.hongseob.openclass_ap.member.dto.SignupRequest;
 import com.hongseob.openclass_ap.member.dto.SignupResponse;
+import com.hongseob.openclass_ap.member.jwt.JwtTokenProvider;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,14 +22,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final MemberService memberService;
+    private final JwtTokenProvider jwtTokenProvider;
 
-    public AuthController(MemberService memberService) {
+    public AuthController(MemberService memberService, JwtTokenProvider jwtTokenProvider) {
         this.memberService = memberService;
+        this.jwtTokenProvider = jwtTokenProvider;
     }
 
     @PostMapping("/signup")
     public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
         Member member = memberService.signup(request.email(), request.password(), request.name());
         return ResponseEntity.status(HttpStatus.CREATED).body(SignupResponse.from(member));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        Member member = memberService.login(request.email(), request.password());
+        String accessToken = jwtTokenProvider.generateToken(member);
+        return ResponseEntity.ok(new LoginResponse(accessToken));
     }
 }

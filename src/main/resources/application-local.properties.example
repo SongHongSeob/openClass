@@ -24,3 +24,8 @@ spring.datasource.driver-class-name=org.postgresql.Driver
 spring.jpa.hibernate.ddl-auto=update
 spring.jpa.show-sql=true
 spring.jpa.properties.hibernate.format_sql=true
+
+# JWT signing secret for local development (HS256 requires >= 32 bytes).
+# Generate your own random value; never reuse this placeholder outside local dev.
+app.jwt.secret=<YOUR_LOCAL_JWT_SIGNING_SECRET_AT_LEAST_32_BYTES>
+
