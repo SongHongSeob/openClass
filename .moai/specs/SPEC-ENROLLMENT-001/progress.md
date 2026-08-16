@@ -59,6 +59,24 @@ tier: L
 
 Implementation Kickoff Approval → run (M1부터). 선행 `SPEC-AUTH-001`·`SPEC-COURSE-001`의 `completed` 확인이 진입 조건이다.
 
+## §F Phase 4 Mode Selection
+
+**Input parameters**:
+- tier: L
+- scope (file count): ~16-18 production files, 10-12 test files (per plan.md 예상)
+- domain count: 1 (single Java/Spring Boot backend domain, SPEC-AUTH-001/COURSE-001 골격 확장)
+- file language mix: 100% Java
+- concurrency benefit: LOW (coding-heavy implementation — Anthropic coding-task parallelism caveat). 동시성이 이 SPEC의 **도메인 주제**이지만, 구현 작업 자체는 순차적 마일스톤 의존성을 갖는 코딩 작업이다
+- Agent Teams prereqs: N/A (Mode 3 retired)
+
+**Decision**: sub-agent (Mode 5)
+
+**Justification**: SPEC-AUTH-001/COURSE-001과 동일한 근거 — 단일 도메인 Java/Spring Boot TDD 구현, 순차적 마일스톤 의존성(M1 스키마/접수잠금 → M2 워커 → M3 상태조회 → M4 대기명단/취소 → M5 관리자연동 → M6 마감정리). 특히 M1(접수 순서 보장)과 M2(확정 경로 단일성)는 서로의 산출물에 의존하므로 병렬화가 불가능하다.
+
+**Route**: **Route B (PR 기반)** — Tier L이므로 spec-workflow.md § SPEC Phase Discipline에 따라 main 직접 커밋이 아닌 별도 브랜치 + PR 방식을 따른다. `feat/SPEC-ENROLLMENT-001` 브랜치 생성 완료.
+
+**Implementation Kickoff Approval confirmation**: obtained via AskUserQuestion — **마일스톤별 확인(semi-autonomous progression)** 선택. 동시성 버그의 위험도가 높아 각 마일스톤 완료 시 사용자 확인을 거친 뒤 다음 단계로 진행한다.
+
 ## §E.2 Run-phase Evidence
 
 _<pending run-phase>_
