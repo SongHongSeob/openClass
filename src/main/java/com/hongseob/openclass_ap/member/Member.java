@@ -65,6 +65,16 @@ public class Member {
     }
 
     /**
+     * 최초 관리자 시더({@code AdminSeeder}) 전용 생성 진입점 (plan.md §C.4 / AC-AUTH-016).
+     * 회원가입 API가 아니라 애플리케이션 기동 시 1회만 호출되는 통제된 경로이며,
+     * 사용자 입력(요청 본문)으로는 이 경로에 도달할 수 없다 — 권한 상승 경로가
+     * 새로 열리지 않는다.
+     */
+    public static Member createAdmin(String rawEmail, String passwordHash, String name) {
+        return new Member(rawEmail, passwordHash, name, MemberRole.ADMIN);
+    }
+
+    /**
      * 이메일 정규화의 단일 진입점 (REQ-SIGNUP-007). 저장 시점(이 클래스의 생성자)과
      * 조회 시점(MemberService) 양쪽에서 이 메서드로만 정규화를 수행한다 — 여러
      * 호출부에서 각각 toLowerCase()를 호출하는 방식은 누락 경로를 만들므로 금지한다
