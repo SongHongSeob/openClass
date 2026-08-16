@@ -1,5 +1,7 @@
 package com.hongseob.openclass_ap.course.dto;
 
+import com.hongseob.openclass_ap.common.validation.HasDateRange;
+import com.hongseob.openclass_ap.common.validation.ValidDateRange;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -11,12 +13,16 @@ import java.time.LocalDateTime;
  * <p>{@code capacity}가 확정 인원 미만인지는 이 레코드가 아니라 서비스 계층이
  * 검증한다(409, plan.md §C.3) — 여기서는 정원 1 미만(400)만 형식 검증으로
  * 걸러낸다(REQ-ADM-004).</p>
+ *
+ * <p>{@code endsAt}이 {@code startsAt}보다 이르면 {@link ValidDateRange}가 400을
+ * 반환한다(REQ-NFR-001, AC-NFR-001).</p>
  */
+@ValidDateRange
 public record CourseUpdateRequest(
         @NotBlank String title,
         String description,
         @NotNull @Min(1) Integer capacity,
         @NotNull LocalDateTime startsAt,
         @NotNull LocalDateTime endsAt
-) {
+) implements HasDateRange {
 }

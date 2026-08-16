@@ -247,13 +247,66 @@ BUILD SUCCESSFUL — CourseAdminApiIntegrationTest: tests=8, failures=0
 - AC-NFR-001(입력 검증 보강 — 강좌명 누락, 종료 일시가 시작 일시보다 이른 값, 정원이 정수가 아닌 값)은 M3 범위(AC-ADM-001~008)에 포함되지 않으므로 M4에서 구현·검증한다.
 - AC-NFR-003(커버리지 85%+ 및 LSP/타입/린트 에러 0건)의 SPEC 전체 최종 확인은 M4에서 수행한다.
 
+### M4 — 비기능 마감 (완료)
+
+**신규 산출물**:
+- `src/main/java/com/hongseob/openclass_ap/common/validation/{HasDateRange,ValidDateRange,DateRangeValidator}.java` — 클래스 레벨 커스텀 Bean Validation 제약(교차 필드 검증). `CourseCreateRequest`/`CourseUpdateRequest`가 `HasDateRange`를 구현하고 `@ValidDateRange`를 부착 — 별도 구현 코드 없이 record 컴포넌트 접근자만으로 종료 일시가 시작 일시보다 이른 경우를 400으로 거부한다(REQ-NFR-001).
+- `src/test/java/com/hongseob/openclass_ap/course/admin/CourseInputValidationIntegrationTest.java` — AC-NFR-001 (i)(ii)(iii) 3종 검증. 정원 형식 오류(정수 아님)는 Jackson 역직렬화 실패가 Spring 기본 `HttpMessageNotReadableException` 처리로 400이 되므로 별도 핸들러를 추가하지 않았다(plan.md §C.4.2와 동일 원칙 — 이미 프레임워크 기본 처리가 있는 예외에 중복 핸들러를 두지 않는다).
+
+**AC PASS/FAIL 매트릭스** (M4 대응분 AC-NFR-001~003):
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|-----------------------|----------------|
+| AC-NFR-001 (서버 측 입력 검증) | PASS | `./gradlew test --tests "...CourseInputValidationIntegrationTest"` (격리 실행, 강제 재실행으로 확인) | 3/3 PASS — 강좌명 누락·날짜 역전·정원 형식 오류 각각 400 + 강좌 미생성 확인 |
+| AC-NFR-002 (백엔드 단독 검증 가능성) | PASS | 저장소 구조 확인 | 프론트엔드 산출물 없음 — 이 SPEC(및 SPEC-AUTH-001)의 모든 테스트가 Spring Boot 테스트만으로 구성됨 |
+| AC-NFR-003 (커버리지 및 정적 품질) | PASS | 격리 실행 3회분 jacoco exec 병합(`org.jacoco.core.tools.ExecFileLoader`) 후 재집계 | `course` 100%, `course/dto` 100%, `course/admin` 100%, `common/validation` 89% — 전부 85% 기준 상회. lint 플러그인 미구성으로 "린트 에러 0건"은 SPEC-AUTH-001과 동일하게 공허하게 충족(도구 부재). Hibernate `@Check`/`@Checks` deprecation Note 1건(컴파일 에러 아님, M1부터 기록됨) 외 신규 경고 없음 |
+
+**M1~M4 전체 회귀 매트릭스** (격리 실행, 강제 재실행 `--rerun`으로 Gradle UP-TO-DATE 캐시 우회하여 확인):
+
+| 테스트 클래스 | 결과 |
+|---|---|
+| `CourseSchemaIntegrationTest` (M1) | 5/5 PASS |
+| `CourseCatalogApiIntegrationTest` (M2) | 5/5 PASS |
+| `CourseEnrolledCountMutationAbsenceTest` (M1/M2) | 1/1 PASS |
+| `CourseAdminApiIntegrationTest` (M3) | 8/8 PASS |
+| `CourseAdminStaticAbsenceTest` (M3) | 2/2 PASS |
+| `CourseInputValidationIntegrationTest` (M4) | 3/3 PASS |
+
+전부 격리 실행 기준 100% 통과, assertion 실패 0건.
+
+**환경 이슈 조사 기록 (M4에서 새로 확인된 사실)**: M4 검증 도중 반복적으로 Gradle 데몬이 예기치 않게 중단되는 현상을 발견했다 — 근본 원인은 이 세션의 작업이 아니라 **VS Code Gradle 확장(`vscjava.vscode-gradle`)의 백그라운드 빌드 서버**(`com.github.badsyntax.gradle.GradleServer`, PID 확인됨)가 파일 변경 감지 시 자체적으로 Gradle 데몬을 관리하면서 발생한 충돌이었다. 또한 여러 테스트 클래스를 한 번에 묶어 실행하면(6개 클래스 동시) 이 환경의 Docker 자원 경합(§E.2 M1~M3에서 이미 기록된 문제)이 더 심해져 `CannotCreateTransactionException` 실패가 급증했다 — 개별/소규모 격리 실행에서는 매번 100% 통과했다. 커버리지 측정 시 Gradle의 `UP-TO-DATE` 캐시가 소스 미변경 클래스의 실제 재실행(및 jacoco 계측)을 건너뛰어 부정확한 낮은 수치를 보고하는 현상도 확인했다 — `--rerun` 플래그로 강제 재실행하고 격리 실행분들의 jacoco exec 파일을 `ExecFileLoader`로 병합하여 정확한 수치를 얻었다. 코드 결함은 0건— 전부 로컬 개발 환경/도구 상호작용 이슈였다.
+
+**정적 검증 (SPEC 전체 최종 스윕)**:
+```
+$ grep -rn "AskUserQuestion" src/                                      → 0건
+$ grep -rn "waitlist\|promote\|승격" src/main                          → 0건
+$ grep -rn "\.delete(\|\.remove(" src/main/java/.../course             → 0건
+$ grep -rn "/api/test/" src/main                                        → 0건 (SPEC-AUTH-001 회귀 게이트)
+$ grep -rn "NEEDS CLARIFICATION" .moai/specs/SPEC-COURSE-001/           → 0건
+$ grep -rn "enrolledCount|enrolled_count" src/main --include="*.java" | grep -v "course/Course.java"
+  → 4건 전부 정당한 제외 대상: 주석 2건, 읽기 전용 DTO 필드 선언(CourseResponse) 1건,
+    예외 메시지 구성용 파라미터명(CapacityBelowEnrollmentException, 값을 읽기만 함) 1건.
+    실제 변경(세터·증감) 호출부 0건 — AC-CRS-004(ii) 유지 확인.
+```
+
+**DoD 체크리스트 확인 (acceptance.md §D.3 — SPEC 전체 마감 조건, 8항목)**:
+- [x] AC-CRS-001~NFR-003 전부 통과 (위 회귀 매트릭스 + M1~M3 §E.2 각 절)
+- [x] AC-CRS-002·003·005(DB 제약 3종)가 실제 PostgreSQL(Testcontainers)에서 통과 (M1 §E.2 기록)
+- [x] 추적성 매트릭스(acceptance.md §D.2) 요구사항 23건 + 불변식 4건 전부 커버 (2차 plan-audit에서 기계 검증 완료)
+- [x] 전체 커버리지 ≥85% — `course`/`course.dto`/`course.admin` 100%, `common.validation` 89%
+- [x] LSP/타입/린트 에러 0건(공허 충족 — 도구 미구성), 컴파일 에러 0건
+- [x] spec.md §D 범위 제외 항목 미구현 확인 — `enrolled_count` 변경 경로 0건(AC-CRS-004), 대기명단·승격 코드 0건(AC-ADM-005)
+- [x] 미해소 클래리피케이션 마커 없음
+- [x] 선행 SPEC `SPEC-AUTH-001`이 `completed` 상태
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-- `run_status`: M1-M3 complete, M4 pending
-- `ac_pass_count`: 16 (AC-CRS-001~005, AC-CAT-001~005, AC-ADM-001~008 — AC-CRS-004/005는 M3에서 PASS-WITH-DEBT → PASS로 승격되어 이 카운트에 포함)
-- `ac_pass_with_debt_count`: 0 (M3에서 AC-CRS-004·AC-CRS-005 잔여 검증을 모두 해소)
+- `run_status`: **audit-ready** — M1~M4 전체 마일스톤 완료
+- `ac_pass_count`: 19 (AC-CRS-001~005, AC-CAT-001~005, AC-ADM-001~008, AC-NFR-001~003)
+- `ac_pass_with_debt_count`: 0
 - `ac_fail_count`: 0
-- `new_warnings_or_lints_introduced`: 0 (Hibernate `@Check`/`@Checks` deprecation Note 1건 — M1에서 이미 기록, 컴파일 에러 아님)
+- `new_warnings_or_lints_introduced`: 0 (Hibernate `@Check`/`@Checks` deprecation Note 1건, M1부터 기록, 컴파일 에러 아님)
+- 다음 단계: `/moai sync SPEC-COURSE-001` (문서 동기화 + `implemented → completed` 전이)
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
