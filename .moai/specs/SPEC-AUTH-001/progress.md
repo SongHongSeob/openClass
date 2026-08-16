@@ -202,5 +202,24 @@ tier: M
 - `sync_commit_sha`: this commit (self-referential — a commit cannot cite its own SHA; see `spec-frontmatter-schema.md` § SHA placeholder backfill exemption). 확인은 `git log -1 --format=%H .moai/specs/SPEC-AUTH-001/progress.md` 또는 이 커밋의 SHA로 갈음한다.
 - 동기화 산출물: `CHANGELOG.md`(신규 생성, `[Unreleased]` 섹션에 SPEC-AUTH-001 항목 추가), `.moai/project/tech.md`(인증/인가 섹션 최신화 — Spring Security 6 + JWT 확정 반영), `.moai/project/structure.md`(패키지 구조 최신화), `spec.md`/`plan.md`/`acceptance.md`/`progress.md` frontmatter `status: in-progress → completed` 전이(단일 sync 커밋에 병합, 별도 Mx 커밋 없음)
 - `product.md`: 이미 v1 범위 §1(회원 가입/로그인)이 정확히 기술되어 있어 변경 없음
+
+## §G Post-Sync 독립 감사 후속 조치
+
+sync-auditor 독립 감사 결과: **종합 PASS** (가중 87.5/100, 조화평균 86.6/100). Security 차원 Critical/High 0건으로 HARD 임계 미저촉. 차단 사유 없음. 비차단 권고 7건(F1~F7) 중 안전하고 범위가 명확한 2건을 이 자리에서 직접 수정했다(Rule 1 예외 — 단일 라인 수준의 명백한 결함 수정).
+
+**수정한 항목**:
+- **F1 (Low, high-confidence)** — `JwtAuthenticationFilter.authenticate()`가 `JwtException`만 catch하여, `"Bearer "` 뒤에 토큰이 없는 경우(jjwt가 `IllegalArgumentException`을 던짐) 예외가 필터 밖으로 전파될 수 있었다. 재현 테스트 작성(RED: `IllegalArgumentException` 확인) → `catch (JwtException | IllegalArgumentException e)`로 확장(GREEN) → `JwtAuthenticationFilterTest`(4/4 PASS, 격리 실행) 확인.
+- **F4 (Low, medium-confidence)** — `AuthorizationIntegrationTest`의 AC-AUTH-014 세션 쿠키 부재 단정이 MockMvc 환경에서 원천적으로 실패할 수 없는 공허한 단정(vacuous assertion)이었다. `result.getRequest().getSession(false)`가 `null`인지 관찰하는 단정을 추가하여 STATELESS 정책이 실제로 세션을 생성하지 않음을 검증하도록 보강. `AuthorizationIntegrationTest`(6/6 PASS, 격리 실행) 확인.
+
+**의도적으로 수정하지 않고 남긴 항목(범위 규율)**:
+- **F2 (Medium, 이 SPEC 범위 외)** — `src/main/resources/application-local.properties`에 실제 로컬 Supabase DB 비밀번호가 평문으로 존재한다. 저장소 유출은 없음(`.gitignore` 매칭 확인, 커밋 이력 0건, 도입 커밋 `bdc4f54`는 M1 이전으로 이 SPEC 밖 유래). **사용자가 직접 확인·필요시 비밀번호 교체를 권장** — 이 파일은 SPEC 범위 밖이라 자동 수정하지 않았다.
+- **F3 (Low)** — `SecurityConfig.java:41`의 `GET /api/courses` permitAll 규칙이 `SPEC-COURSE-001` 소유 경로를 선반영하고 있다. 현재 핸들러가 없어 보안 영향은 없으나 범위 선점이다. `SPEC-COURSE-001` plan 단계에서 이 규칙의 소유권을 확인하고 필요시 재검토할 것.
+- F5~F7(Info) — 후속 SPEC의 AC 작성 시 커버리지 지표 명시(F5), lint 플러그인 도입 후 AC-AUTH-020 린트 절 재검증(F6), `role` 클레임 부재 토큰에 대한 방어적 null 검사 고려(F7). 모두 정보성 권고이며 즉시 조치 불필요.
+
+**검증 (오케스트레이터 직접 재확인)**:
+```
+$ ./gradlew test --tests "*JwtAuthenticationFilterTest" --tests "*AuthorizationIntegrationTest"
+BUILD SUCCESSFUL — JwtAuthenticationFilterTest 4/4, AuthorizationIntegrationTest 6/6, 실패 0건
+```
 - MX Tag 검증: sync 하위 단계로 수행 — `grep -rn '@MX:' src/main` 결과 신규 태그 없음(M1~M4에서 이미 SecurityConfig/필터 등 위험 지점에 대한 별도 @MX 태그를 추가하지 않았음을 확인; 이 SPEC 범위에서 새로 태그를 추가해야 할 고fan-in/위험 지점은 발견되지 않음)
 - 다음 단계: 없음 (SPEC 완료, `status: completed`)

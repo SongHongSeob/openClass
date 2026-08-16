@@ -54,7 +54,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Authentication authentication = new UsernamePasswordAuthenticationToken(
                     email, null, List.of(new SimpleGrantedAuthority(ROLE_PREFIX + role)));
             SecurityContextHolder.getContext().setAuthentication(authentication);
-        } catch (JwtException e) {
+        } catch (JwtException | IllegalArgumentException e) {
+            // IllegalArgumentException: "Bearer " 뒤에 토큰이 없는 등, jjwt 파서가
+            // JwtException 계층이 아닌 인자 검증 예외를 던지는 경우까지 포함한다
+            // (sync-auditor 발견 F1 — 헤더 후행 공백을 트리밍하지 않는 클라이언트/
+            // 테스트 하네스 경유 시 재현 가능).
             SecurityContextHolder.clearContext();
         }
     }

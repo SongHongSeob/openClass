@@ -131,11 +131,16 @@ class AuthorizationIntegrationTest extends AbstractIntegrationTest {
             MvcResult result = mockMvc.perform(get(PROTECTED_PATH).header("Authorization", "Bearer " + token))
                     .andExpect(status().isOk())
                     .andReturn();
+            // sync-auditor 발견 F4 — MockHttpServletResponse는 서블릿 컨테이너의
+            // Set-Cookie 발급 로직을 실행하지 않으므로 헤더 검사는 공허한 단정이다.
+            // 대신 요청 처리 중 실제로 HttpSession이 생성됐는지(getSession(false))를
+            // 관찰한다 — STATELESS 정책이면 세션이 아예 만들어지지 않는다.
             String setCookie = result.getResponse().getHeader("Set-Cookie");
             assertThat(setCookie).satisfiesAnyOf(
                     header -> assertThat(header).isNull(),
                     header -> assertThat(header).doesNotContain("JSESSIONID")
             );
+            assertThat(result.getRequest().getSession(false)).isNull();
         }
     }
 

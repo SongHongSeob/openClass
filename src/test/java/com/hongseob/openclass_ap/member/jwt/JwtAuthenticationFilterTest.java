@@ -94,4 +94,25 @@ class JwtAuthenticationFilterTest {
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
         verify(filterChain).doFilter(request, response);
     }
+
+    // sync-auditor 발견 F1 — "Bearer " 뒤에 토큰이 없으면(빈 문자열) jjwt가
+    // JwtException이 아닌 IllegalArgumentException을 던져 필터 밖으로 예외가
+    // 전파된다(500). MockMvc는 실제 서블릿 컨테이너와 달리 헤더 값의 후행
+    // 공백(OWS)을 트리밍하지 않으므로 "Bearer "(끝에 공백) 헤더가 그대로
+    // resolveToken에 전달되어 재현 가능하다.
+    @Test
+    void Bearer_뒤에_토큰이_없으면_예외가_전파되지_않고_인증만_설정되지_않는다() throws Exception {
+        // Given
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Authorization", "Bearer ");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        // When
+        filter.doFilter(request, response, filterChain);
+
+        // Then
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(filterChain).doFilter(request, response);
+    }
 }
