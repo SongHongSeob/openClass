@@ -21,6 +21,10 @@ repositories {
 ext {
 	jjwtVersion = '0.12.6'
 	testcontainersVersion = '1.21.3'
+	// SPEC-ENROLLMENT-001 plan.md §D ArchUnit 예외 각주 — 테스트 스코프 검증
+	// 의존성이며 "신규 인프라 추가 금지" 제약의 대상이 아니다. 이 SPEC의 워커
+	// 패키지 한정 규칙(AC-ENR-005/009) 검증에 실제로 필요하다.
+	archUnitVersion = '1.3.0'
 }
 
 dependencies {
@@ -42,6 +46,7 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:junit-jupiter'
 	testImplementation 'org.testcontainers:postgresql'
+	testImplementation "com.tngtech.archunit:archunit-junit5:${archUnitVersion}"
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'

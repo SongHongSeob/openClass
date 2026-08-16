@@ -19,7 +19,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop"
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        // SPEC-ENROLLMENT-001 plan.md §C.1 — schema.sql의 부분 유니크 인덱스가
+        // ddl-auto 이후에, Testcontainers(비-임베디드) DB에서도 실행되어야 한다.
+        "spring.jpa.defer-datasource-initialization=true",
+        "spring.sql.init.mode=always"
 })
 public abstract class AbstractIntegrationTest {
 
