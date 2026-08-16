@@ -2,9 +2,9 @@
 id: SPEC-AUTH-001
 title: "회원 가입·로그인 및 JWT 인증 기반 — 진행 기록"
 version: "0.1.1"
-status: draft
+status: completed
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-16
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -198,4 +198,9 @@ tier: M
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+- `sync_status`: audit-ready
+- `sync_commit_sha`: this commit (self-referential — a commit cannot cite its own SHA; see `spec-frontmatter-schema.md` § SHA placeholder backfill exemption). 확인은 `git log -1 --format=%H .moai/specs/SPEC-AUTH-001/progress.md` 또는 이 커밋의 SHA로 갈음한다.
+- 동기화 산출물: `CHANGELOG.md`(신규 생성, `[Unreleased]` 섹션에 SPEC-AUTH-001 항목 추가), `.moai/project/tech.md`(인증/인가 섹션 최신화 — Spring Security 6 + JWT 확정 반영), `.moai/project/structure.md`(패키지 구조 최신화), `spec.md`/`plan.md`/`acceptance.md`/`progress.md` frontmatter `status: in-progress → completed` 전이(단일 sync 커밋에 병합, 별도 Mx 커밋 없음)
+- `product.md`: 이미 v1 범위 §1(회원 가입/로그인)이 정확히 기술되어 있어 변경 없음
+- MX Tag 검증: sync 하위 단계로 수행 — `grep -rn '@MX:' src/main` 결과 신규 태그 없음(M1~M4에서 이미 SecurityConfig/필터 등 위험 지점에 대한 별도 @MX 태그를 추가하지 않았음을 확인; 이 SPEC 범위에서 새로 태그를 추가해야 할 고fan-in/위험 지점은 발견되지 않음)
+- 다음 단계: 없음 (SPEC 완료, `status: completed`)

@@ -18,10 +18,19 @@
 | runtimeOnly | postgresql | PostgreSQL JDBC 드라이버 |
 | testImplementation | spring-boot-starter-data-jpa-test, spring-boot-starter-validation-test, spring-boot-starter-webmvc-test | 계층별 테스트 슬라이스 |
 | testRuntimeOnly | junit-platform-launcher | JUnit 5 실행 |
+| implementation | spring-boot-starter-security | Spring Security 6 — 인증/인가 필터 체인 |
+| implementation | io.jsonwebtoken:jjwt-api (0.12.6) | JWT 발급/검증 (JJWT API) |
+| runtimeOnly | io.jsonwebtoken:jjwt-impl, jjwt-jackson (0.12.6) | JJWT 런타임 구현체 |
+| testImplementation | spring-boot-starter-security-test | Security 테스트 슬라이스 |
+| testImplementation | spring-boot-testcontainers, org.testcontainers:junit-jupiter, org.testcontainers:postgresql | Testcontainers(PostgreSQL) 기반 통합 테스트 |
 
-### 미결정 사항 — Plan 단계에서 결정 필요
+### 인증/인가 (SPEC-AUTH-001에서 확정 — `src/main/java/com/hongseob/openclass_ap/member/`, `common/config/`)
 
-- **인증/인가**: 현재 Spring Security 의존성이 build.gradle에 없다. 이메일+비밀번호 로그인 구현 시 Spring Security 도입 여부 및 세션/토큰(JWT 등) 전략을 SPEC plan 단계에서 결정해야 한다. 특정 라이브러리를 임의로 가정하지 않는다.
+- **인증 방식**: JWT 액세스 토큰 단일 방식(HMAC-SHA256, `io.jsonwebtoken:jjwt` 0.12.6). 리프레시 토큰 회전·서버 측 토큰 폐기 목록(denylist)은 v1 범위 제외 — 로그아웃은 클라이언트 측 토큰 폐기로만 수행.
+- **세션 전략**: STATELESS(`SecurityConfig`의 `SecurityFilterChain` Bean). `HttpSession` 미사용, `JwtAuthenticationFilter`가 `Authorization: Bearer` 헤더를 매 요청마다 검증.
+- **비밀번호 해싱**: BCrypt(`PasswordEncoderConfig`).
+- **인가 규칙**: `/api/auth/**` + `GET /api/courses` permitAll, `/api/admin/**` `ADMIN` 역할 필요, 그 외 인증 필요. 401(미인증)/403(권한부족)을 명시적 `AuthenticationEntryPoint`/`AccessDeniedHandler`로 구분.
+- **테스트 인프라**: Testcontainers(PostgreSQL)로 통합 테스트 실행 — `AbstractIntegrationTest` 공통 베이스.
 
 ## 데이터베이스
 

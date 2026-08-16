@@ -2,9 +2,9 @@
 id: SPEC-AUTH-001
 title: "회원 가입·로그인 및 JWT 인증 기반 — 구현 계획"
 version: "0.1.1"
-status: draft
+status: completed
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-16
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
