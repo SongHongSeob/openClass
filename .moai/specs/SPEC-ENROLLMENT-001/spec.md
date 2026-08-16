@@ -1,10 +1,10 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격"
-version: "0.2.1"
+version: "0.2.2"
 status: draft
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-16
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -24,6 +24,7 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001]
 | 0.1.0 | 2026-08-15 | manager-spec | 최초 작성 (draft) — 인증·강좌·수강신청 전체를 담은 Tier L 단일 SPEC |
 | 0.2.0 | 2026-08-15 | manager-spec | **범위 축소 재작성.** 인증은 `SPEC-AUTH-001`, 강좌는 `SPEC-COURSE-001`로 분리. plan-auditor 감사(FAIL, 0.76) 지적 12건 반영 — 특히 접수 순서 보장 메커니즘 재설계(강좌 단위 배타 잠금), `enrolled_count` 변경 경로 단일화, 취소 소유권 검증 추가, 큐 상태 도메인 명시, 부하 상한 정량화 |
 | 0.2.1 | 2026-08-15 | manager-spec | 2차 감사 지적 반영 — **E1**(동일 회원의 활성 대기명단 항목 중복 미차단 → REQ-WRK-007에 3번째 상태 추가, REQ-WL-009 부적격 대기자 건너뛰기, REQ-WL-010 DB 제약, INV-ENR-009), **E2**(`CLOSED` 강좌에서의 `CANCEL`·`CAPACITY_INCREASE` 동작 미정의 → REQ-WL-011·REQ-ADX-005로 "취소는 허용, 승격은 동결" 확정 + §A.4 `result` 도메인 확장), E6(REQ-NFR-006에서 TDD 프로세스 절 분리 → plan.md §D 제약으로 이동) |
+| 0.2.2 | 2026-08-16 | manager-spec | plan-auditor **2회차 PASS(0.92)** 후속 문서 정밀화 (경미 6건 N1~N6 중 이 파일 해당분 4건). **N4** — §A.4에 `enrollment.status`(2종)·`waitlist_entry.status`(4종, `DUPLICATE` 포함) 값 도메인과 합법 전이를 규범적으로 열거하고 "활성(active)"을 정의. REQ-WL-009의 "중복 상태"가 `DUPLICATE`임을 명시. **N5** — REQ-WL-001에 대기 순번 부여 규칙(`MAX(position) + 1` over 전체 이력, `COUNT(활성)+1` 금지)을 명시하여 승격 후 순번 충돌로 인한 큐 선두 정지 경로를 차단. **N1** — REQ-WL-003·REQ-WL-004·REQ-ADX-002의 무조건 `shall`에 모집 상태·승격 적격성 한정 어구 추가(REQ-WL-011/REQ-ADX-005/REQ-WL-009와의 표면상 모순 해소, 동작 변경 없음). **N2** — REQ-QUE-003의 접수 잠금 범위를 큐 INSERT 전 경로(`ENROLL`·`CANCEL`·`CAPACITY_INCREASE`)로 확장하여 AC-ENR-005의 실제 검증 범위와 일치시킴 |
 
 ---
 
@@ -63,7 +64,11 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001]
 | 확정 경로 | — | `Enrollment` 생성과 `course.enrolled_count` 변경이 일어나는 **유일한** 코드 경로. v1에서는 워커 1개소 |
 | 접수 잠금 | — | 접수 트랜잭션이 순서값 할당 전에 획득하는 강좌 단위 배타 잠금 (§A.2) |
 
-### A.4 큐 상태 도메인 (state machine) — 규범적 정의
+### A.4 상태 도메인 (state machine) — 규범적 정의
+
+이 절은 이 SPEC이 만드는 세 테이블(`enrollment_request`·`enrollment`·`waitlist_entry`)의 상태 값 집합과 합법 전이를 **규범적으로** 확정한다. 아래 표에 없는 값은 저장될 수 없고, 아래에 없는 전이는 수행될 수 없다.
+
+#### A.4.1 큐 상태 도메인 (`enrollment_request`)
 
 큐 행은 **처리 상태**(`state`)와 **처리 결과**(`result`) 두 컬럼을 갖는다. 아래가 두 값 집합의 **완전한 열거**이며, 여기 없는 값은 저장될 수 없다.
 
@@ -112,6 +117,46 @@ PENDING      →  state=DONE,    result=<위 표의 값 중 1개>   [워커 처�
 
 **클라이언트 노출 상태** = `state='PENDING'`이면 `PENDING`, 아니면 `result` 값을 그대로 노출한다.
 
+#### A.4.2 확정 수강신청 상태 도메인 (`enrollment.status`, 2종)
+
+| 값 | 의미 | 종단 |
+|---|---|---|
+| `ENROLLED` | 유효한 확정 수강신청. `enrolled_count` 계산의 대상이며 `(member_id, course_id) WHERE status='ENROLLED'` 부분 유니크 인덱스의 대상이다 | 아니오 |
+| `CANCELLED` | 취소됨. 이력으로 보존되고 `enrolled_count` 계산에서 제외되며 부분 유니크 인덱스의 대상이 아니다 | **예** |
+
+**합법 전이 (이 2개가 전부)**
+
+```
+(신규 생성)  →  status=ENROLLED
+ENROLLED     →  status=CANCELLED           [워커의 CANCEL 처리, 1회만]
+```
+
+`CANCELLED → ENROLLED` 역전이는 존재하지 않는다. 취소 후 같은 강좌에 재신청하면 **새 `ENROLLED` 행**이 생성된다 (REQ-WRK-007의 중복 검사는 `ENROLLED` 행만 본다 — AC-ENR-040).
+
+"유효한 확정 수강신청"이라는 표현은 이 SPEC 전체에서 `status='ENROLLED'`인 행만을 가리킨다.
+
+#### A.4.3 대기명단 항목 상태 도메인 (`waitlist_entry.status`, 4종)
+
+| 값 | 의미 | 종단 |
+|---|---|---|
+| `WAITING` | 활성 대기. 순번을 점유하고 승격 대상이며, 부분 유니크 인덱스 2종(`(course_id, position)`·`(member_id, course_id)`, 둘 다 `WHERE status='WAITING'`)의 대상이다 | 아니오 |
+| `PROMOTED` | 승격되어 확정 수강신청이 생성됨 (REQ-WL-003, REQ-ADX-002) | **예** |
+| `CANCELLED` | 대기자 본인이 자신의 대기를 취소함 (REQ-WL-007) | **예** |
+| `DUPLICATE` | 승격 시점에 해당 강좌에 이미 유효한 확정을 보유하여 **승격 부적격**으로 판정되어 건너뛰어진 항목 (REQ-WL-009). REQ-WL-009가 말하는 "중복 상태로 종결"이 가리키는 값이 이것이다 | **예** |
+
+**합법 전이 (이 4개가 전부)**
+
+```
+(신규 생성)  →  status=WAITING
+WAITING      →  status=PROMOTED            [승격]
+WAITING      →  status=CANCELLED           [대기자 본인의 대기 취소]
+WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결]
+```
+
+종단 3종(`PROMOTED`·`CANCELLED`·`DUPLICATE`)에서 나가는 전이는 존재하지 않는다.
+
+**"활성(active)"의 규범적 정의**: 이 SPEC 전체에서 "활성 대기자 / 활성 대기명단 항목 / 활성 대기 순번"은 모두 `status='WAITING'`인 항목만을 가리킨다. 종단 3종은 순번을 점유하지 않고 부분 유니크 인덱스의 대상도 아니므로, 대기를 취소했거나 승격이 끝난 회원의 재신청을 막지 않는다. 다만 **순번 값 자체는 재사용되지 않는다** — 부여 규칙은 REQ-WL-001에 있다.
+
 ### A.5 마감(`CLOSED`) 강좌에서의 요청 처리 정책 — 규범적 결정
 
 `SPEC-COURSE-001`은 강좌 **삭제를 물리 삭제가 아닌 `CLOSED` 전이로** 처리한다 (REQ-ADM-008). 따라서 관리자가 "삭제"한 강좌에도 확정자와 대기자가 그대로 남아 있을 수 있고, 그 상태에서 `CANCEL`·`CAPACITY_INCREASE`가 처리될 수 있다. 이 조합에서 무엇을 해야 하는지 정하지 않으면 구현자가 임의로 결정하게 되므로, 여기서 **명시적으로 확정한다.**
@@ -138,7 +183,9 @@ PENDING      →  state=DONE,    result=<위 표의 값 중 1개>   [워커 처�
 
 - **REQ-QUE-001** (Ubiquitous) — 큐 테이블은 각 요청의 접수 순서를 전역 단조 증가 순서값으로 보존 **shall**한다.
 - **REQ-QUE-002** (Event-driven) — **When** 인증된 회원의 수강신청 요청이 도착하면, 접수 API는 정원 검사나 확정 처리를 수행하지 않고 요청을 `state='PENDING'`으로 큐에 적재한 뒤 요청 식별자를 즉시 반환 **shall**한다.
-- **REQ-QUE-003** (Ubiquitous) — 접수 트랜잭션은 큐 행의 순서값을 할당하기 **이전에** 대상 강좌 단위의 배타 잠금을 획득 **shall**하며, 그 잠금은 트랜잭션 커밋 시점에 해제 **shall**된다. 동일 강좌에 대한 두 접수 트랜잭션의 `[잠금 획득 → 순서값 할당 → 커밋]` 구간은 서로 겹치 **shall not**한다.
+- **REQ-QUE-003** (Ubiquitous) — 큐 행을 적재하는 **모든** 트랜잭션(`ENROLL` 접수·`CANCEL` 접수·`CAPACITY_INCREASE` 적재)은 큐 행의 순서값을 할당하기 **이전에** 대상 강좌 단위의 배타 잠금을 획득 **shall**하며, 그 잠금은 트랜잭션 커밋 시점에 해제 **shall**된다. 동일 강좌에 대한 두 적재 트랜잭션의 `[잠금 획득 → 순서값 할당 → 커밋]` 구간은 서로 겹치 **shall not**한다. 잠금을 획득하지 않고 큐 행을 적재하는 프로덕션 경로가 존재 **shall not**한다.
+
+  > **범위가 3종 전부인 이유 (2회차 감사 후속 N2)**: REQ-QUE-004의 가시화 순서 보장은 "동일 강좌의 **큐 행**"에 대한 명제이지 `ENROLL` 행에 국한되지 않는다. 한 종류라도 잠금 없이 적재되면 그 종류의 행에서 순서값 순서 ≠ 커밋 순서가 되어 REQ-QUE-004가 성립하지 않으며, 워커가 보는 집합이 접수 순서의 접두사라는 성질(§A.2)도 깨진다. AC-ENR-005는 이미 "잠금 획득 없이 큐 행을 INSERT하는 프로덕션 경로가 0건"이라는 3종 전부의 조건을 검증하고 있었고, 이 개정은 요구사항 문구를 그 검증 범위에 맞춘 것이다 — 설계 변경이 아니다.
 - **REQ-QUE-004** (Ubiquitous) — 동일 강좌에 대해, 큐 행 순서값의 오름차순은 그 행이 다른 트랜잭션에 가시화되는 순서와 일치 **shall**한다. 순서값이 더 큰 행이 가시화되었는데 순서값이 더 작은 같은 강좌의 행이 아직 가시화되지 않은 상태는 존재 **shall not**한다.
 - **REQ-QUE-005** (Event-driven) — **When** 존재하지 않는 강좌 식별자로 접수 요청이 감지되면, 접수 API는 404를 반환하고 큐 행을 적재 **shall not**한다.
 - **REQ-QUE-006** (State-driven) — **While** 요청자가 인증되지 않은 상태이면, 접수·취소·상태 조회 API는 401을 반환 **shall**하며 큐 행을 적재 **shall not**한다.
@@ -176,15 +223,17 @@ PENDING      →  state=DONE,    result=<위 표의 값 중 1개>   [워커 처�
 
 ### B.4 대기명단 (WL)
 
-- **REQ-WL-001** (Ubiquitous) — 대기명단은 등록 순서에 따른 결정적 순번을 유지 **shall**하며, 동일 강좌 내 활성 대기 순번이 중복 **shall not**된다.
+- **REQ-WL-001** (Ubiquitous) — 대기명단은 등록 순서에 따른 결정적 순번을 유지 **shall**하며, 동일 강좌 내 활성 대기 순번이 중복 **shall not**된다. 새 대기명단 항목의 순번은 **해당 강좌의 전체 대기명단 이력**(종단 상태 `PROMOTED`·`CANCELLED`·`DUPLICATE` 항목을 포함한다)에서 관측된 **최대 순번 + 1**로 부여 **shall**된다. 현재 활성 항목의 **개수**(`COUNT`)에 기반하여 부여 **shall not**하며, 한 번 부여된 순번 값은 그 항목이 종단 상태가 된 뒤에도 재사용 **shall not**된다.
+
+  > **`COUNT(활성)+1`을 금지하는 이유 (2회차 감사 후속 N5)**: 순번은 활성 항목만 점유하지만(§A.4.3), 승격·취소로 종단이 된 항목의 순번 값은 이력에 남는다. 대기자 C(1)·D(2) 상태에서 C가 승격되면 활성 항목은 D 하나이므로 `COUNT(활성)+1 = 2`가 되어 **D가 이미 쓰고 있는 순번 2와 충돌**한다. 그 INSERT는 `(course_id, position) WHERE status='WAITING'` 부분 유니크 인덱스에 걸려 예외가 되고, 예외가 `processOne` 트랜잭션 **전체를 롤백**시켜 REQ-WL-009가 막으려는 것과 **동일한 큐 선두 정지(생존성 결함)** 를 만든다. `MAX(순번) + 1`은 종단 항목의 순번까지 세므로 이 충돌이 구조적으로 발생하지 않는다. AC-ENR-031의 역순 사례(C 승격 후 E가 순번 3을 받는다)가 암묵적으로 요구하던 규칙을 여기서 규범화한다.
 - **REQ-WL-002** (Ubiquitous) — 데이터베이스는 동일 강좌 내 활성 대기 순번의 중복을 제약 조건 수준에서 거부 **shall**한다.
-- **REQ-WL-003** (Event-driven) — **When** 워커가 `CANCEL` 요청을 처리하면, 워커는 **같은 트랜잭션 안에서** 확정 레코드를 취소 상태로 전이하고 `enrolled_count`를 1 감소시킨 뒤, 해당 강좌에 활성 대기자가 존재하면 가장 앞선 순번의 대기자 1명을 즉시 확정으로 승격하고 그 대기명단 항목을 승격 완료로 전이 **shall**한다.
-- **REQ-WL-004** (Ubiquitous) — 취소로 발생한 여유 정원은 활성 대기자가 존재하는 한 그 대기자에게 우선 배정 **shall**된다. 취소 시점에 대기자가 존재하는데도 그 여유 정원이 대기자보다 늦게 접수된 신규 `ENROLL` 요청에 배정 **shall not**된다.
+- **REQ-WL-003** (Event-driven) — **When** 워커가 `CANCEL` 요청을 처리하면, 워커는 **같은 트랜잭션 안에서** 확정 레코드를 취소 상태로 전이하고 `enrolled_count`를 1 감소시킨 뒤, **강좌가 모집 중인 동안**(강좌가 `CLOSED`이면 승격을 수행하지 않는다 — REQ-WL-011) 해당 강좌에 **승격 적격인**(REQ-WL-009의 부적격 건너뛰기 대상은 제외한다) 활성 대기자가 존재하면 가장 앞선 순번의 적격 대기자 1명을 즉시 확정으로 승격하고 그 대기명단 항목을 `PROMOTED`로 전이 **shall**한다.
+- **REQ-WL-004** (State-driven) — **While** 대상 강좌가 모집 중이면, 취소로 발생한 여유 정원은 승격 적격인 활성 대기자가 존재하는 한 그 대기자에게 우선 배정 **shall**된다. 취소 시점에 그런 대기자가 존재하는데도 그 여유 정원이 대기자보다 늦게 접수된 신규 `ENROLL` 요청에 배정 **shall not**된다.
 - **REQ-WL-005** (Event-driven) — **When** 워커가 `CANCEL` 요청을 처리하는 시점에 해당 강좌에 활성 대기자가 없는 것이 감지되면, 워커는 새 확정 레코드를 생성하지 않고 1 감소된 `enrolled_count`를 유지한 채 처리를 정상 종료 **shall**한다.
 - **REQ-WL-006** (Ubiquitous) — 승격 처리는 확정 인원이 정원을 초과하지 않는 범위에서만 수행 **shall**된다. 승격 경로는 REQ-WRK-014의 정원 제약을 우회 **shall not**한다.
 - **REQ-WL-007** (Event-driven) — **When** 대기자가 자신의 대기 신청 취소를 요청하면, 시스템은 해당 대기명단 항목을 취소 상태로 전이 **shall**하며, 그보다 뒤 순번 대기자들의 상대적 순서를 변경 **shall not**한다.
 - **REQ-WL-008** (Event-driven) — **When** 대기 신청 취소 요청이 그 대기명단 항목의 소유자가 아닌 회원으로부터 도착한 것이 감지되면, 시스템은 취소를 수행 **shall not**하고 403 또는 404를 반환 **shall**한다.
-- **REQ-WL-009** (Event-driven) — **When** 승격 처리 중 대기 순번이 가장 앞선 대기자가 **승격 부적격**(해당 강좌에 이미 유효한 확정 수강신청을 보유)인 것이 감지되면, 워커는 그 항목을 **건너뛰고 다음 활성 대기자로 진행** **shall**하며, 트랜잭션 전체를 실패시키 **shall not**한다. 건너뛴 항목은 중복 상태로 종결 처리 **shall**되어 다시 큐 선두에 남지 **shall not**한다.
+- **REQ-WL-009** (Event-driven) — **When** 승격 처리 중 대기 순번이 가장 앞선 대기자가 **승격 부적격**(해당 강좌에 이미 유효한 확정 수강신청을 보유)인 것이 감지되면, 워커는 그 항목을 **건너뛰고 다음 활성 대기자로 진행** **shall**하며, 트랜잭션 전체를 실패시키 **shall not**한다. 건너뛴 항목은 `status='DUPLICATE'`(§A.4.3)로 종결 처리 **shall**되어 다시 대기 선두에 남지 **shall not**한다.
 
   > 이 요구사항이 없으면 부적격 대기자에 대한 확정 INSERT가 부분 유니크 인덱스에 걸려 예외가 되고, 그 예외가 `processOne` 트랜잭션 전체를 롤백시켜 **취소가 소실되고 여유 정원이 영원히 재배정되지 않는다.** 그 항목은 계속 큐 선두에 남아 이후의 모든 `CANCEL`을 동일하게 실패시킨다 — 생존성(liveness) 결함이다. REQ-WRK-007의 3번 상태가 진입을 막고, 이 요구사항이 이미 만들어진 상태에서 복구를 보장한다.
 - **REQ-WL-010** (Ubiquitous) — 데이터베이스는 동일 강좌·동일 회원의 활성 대기명단 항목이 2건 이상 존재하는 상태를 제약 조건 수준에서 거부 **shall**한다. 애플리케이션 검사(REQ-WRK-007)만을 유일한 방어선으로 삼아서는 **shall not** 한다.
@@ -203,7 +252,7 @@ PENDING      →  state=DONE,    result=<위 표의 값 중 1개>   [워커 처�
 `SPEC-COURSE-001`이 정의한 관리자 강좌 API의 동작을 이 SPEC이 확장한다.
 
 - **REQ-ADX-001** (Event-driven) — **When** 관리자가 강좌 정원을 증가시키면, 시스템은 `CAPACITY_INCREASE` 요청을 큐에 적재 **shall**하며, 승격 처리를 관리자 API 경로에서 직접 수행 **shall not**한다.
-- **REQ-ADX-002** (Event-driven) — **When** 워커가 `CAPACITY_INCREASE` 요청을 처리하면, 워커는 확정 인원이 정원에 도달할 때까지 대기 순번 오름차순으로 대기자를 승격 **shall**하며, 정원을 초과 **shall not**한다.
+- **REQ-ADX-002** (Compound) — **While** 대상 강좌가 모집 중이고 **When** 워커가 `CAPACITY_INCREASE` 요청을 처리하면, 워커는 확정 인원이 정원에 도달할 때까지 대기 순번 오름차순으로 **승격 적격인** 대기자를 승격 **shall**하며(부적격 항목은 REQ-WL-009에 따라 건너뛴다), 정원을 초과 **shall not**한다. 강좌가 `CLOSED`이면 어떤 대기자도 승격 **shall not**한다 (REQ-ADX-005).
 - **REQ-ADX-003** (Event-driven) — **When** 워커가 `CAPACITY_INCREASE` 요청 처리 시점에 승격 대상 활성 대기자가 없는 것을 감지하면, 어떤 확정 레코드도 생성하지 않고 결과를 `NOOP`으로 기록 **shall**한다.
 - **REQ-ADX-004** (Event-driven) — **When** 관리자가 강좌를 마감한 뒤 워커가 그 강좌의 미처리 `ENROLL` 요청을 처리하면, 워커는 각 요청의 결과를 `CLOSED`로 종결 **shall**하며 새 확정 레코드를 생성 **shall not**한다.
 - **REQ-ADX-005** (State-driven) — **While** 대상 강좌의 모집 상태가 `CLOSED`이면, 워커는 `CAPACITY_INCREASE` 요청에 대해 어떤 대기자도 승격 **shall not**하고 `enrolled_count`를 변경 **shall not**하며, 결과를 `CLOSED`로 기록 **shall**한다 (§A.5). 대기명단 항목의 순번은 보존 **shall**된다.

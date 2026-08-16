@@ -1,10 +1,10 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 — 설계"
-version: "0.1.1"
+version: "0.1.2"
 status: draft
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-16
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -66,13 +66,15 @@ tier: L
 정합성 논증 전문은 research.md §4에 있다. 여기서는 코드 형태만 기록한다.
 
 ```
-[접수 API 트랜잭션]
+[큐 적재 트랜잭션 — ENROLL / CANCEL / CAPACITY_INCREASE 3종 공통]
   BEGIN
-    (1) 강좌 존재·인증 검증
+    (1) 강좌 존재·인증·소유권 검증
     (2) pg_advisory_xact_lock(<course_id 기반 키>)   ← 순서값 할당보다 반드시 먼저
     (3) INSERT INTO enrollment_request (...)          ← 여기서 순서값 확정
   COMMIT                                              ← 잠금 자동 해제
 ```
+
+**이 순서는 큐에 행을 넣는 세 경로 전부에 동일하게 적용된다 (REQ-QUE-003, 2회차 감사 후속 N2)** — `ENROLL` 접수 API, `CANCEL` 취소 API, 관리자 정원 증설의 `CAPACITY_INCREASE` 적재. REQ-QUE-004의 가시화 순서 보장은 "동일 강좌의 큐 행" 전체에 대한 명제이므로, 한 경로라도 잠금 없이 적재하면 그 종류의 행에서 순서값 순서 ≠ 커밋 순서가 되어 §4 정합성 논증이 성립하지 않는다. AC-ENR-005가 "잠금 없이 큐 행을 INSERT하는 프로덕션 경로 0건"으로 이 3종 전부를 검증한다.
 
 **(2)와 (3)의 순서가 뒤바뀌면 보장이 전부 무너진다.** 이 순서 의존성은 코드만 봐서는 드러나지 않으므로, 해당 지점에 `@MX:ANCHOR` 주석으로 불변 계약을 남기고 acceptance.md AC-ENR-006/007이 기계적으로 검증한다.
 
@@ -128,8 +130,13 @@ if course.enrolled_count < course.capacity:
     INSERT enrollment(status=ENROLLED)
     course.enrolled_count += 1                     → SUCCESS
 else:
-    INSERT waitlist_entry(position = 다음 순번)     → WAITLISTED
+    # 순번 부여 규칙 (REQ-WL-001) — 전체 이력의 최대 순번 + 1. COUNT(활성)+1 금지
+    next_pos = COALESCE(MAX(position), 0) + 1
+               FROM waitlist_entry WHERE course_id = :courseId   # status 필터 없음 = 전체 이력
+    INSERT waitlist_entry(position = next_pos, status = WAITING) → WAITLISTED
 ```
+
+**순번 부여에 `MAX(position) + 1`을 쓰고 `COUNT(활성) + 1`을 쓰지 않는 이유 (2회차 감사 후속 N5)**: 위 `MAX` 조회에 `status` 필터가 **없다는 점**이 핵심이다. 순번은 활성(`WAITING`) 항목만 점유하지만(spec.md §A.4.3), 승격·취소로 종단이 된 항목의 순번 값은 이력에 남아 있다. 대기자 C(1)·D(2)에서 C가 `PROMOTED`가 되면 활성은 D 하나이므로 `COUNT(활성)+1 = 2`가 되어 **D의 순번 2와 충돌**한다. 그 INSERT는 `(course_id, position) WHERE status='WAITING'` 부분 유니크 인덱스에 걸려 예외가 되고, 예외가 `processOne` 트랜잭션 **전체를 롤백**시켜 REQ-WL-009가 막으려는 것과 **동일한 큐 선두 정지(생존성 결함)** 를 만든다 — 이번에는 승격 경로가 아니라 접수 경로에서. `MAX(전체 이력) + 1`은 종단 항목의 순번까지 세므로 이 충돌이 구조적으로 발생하지 않는다.
 
 세 번째 검사가 빠지면: 이미 대기자가 된 회원의 이전 요청은 `state='DONE'`이므로 두 번째 검사에 걸리지 않고, 확정도 아니므로 첫 번째에도 걸리지 않는다. 그대로 `WAITLISTED` 분기로 내려가 **같은 회원이 같은 강좌의 대기 순번을 2개 점유**한다. 이는 평범한 사용자 행동(대기 상태에서 조급하게 재신청)만으로 도달 가능한 상태였다.
 
@@ -158,7 +165,7 @@ while true:
     if front is null: return false                    # 승격 대상 없음
 
     if front.member_id 가 이 강좌에 이미 유효한 확정 보유:
-        front.status = DUPLICATE                      # 종결 처리 — 다시 선두에 남지 않는다
+        front.status = DUPLICATE                      # 종결 처리 (spec.md §A.4.3) — 다시 선두에 남지 않는다
         continue                                      # 다음 대기자로 진행 (예외를 던지지 않는다)
 
     INSERT enrollment(front.member_id, status=ENROLLED)
