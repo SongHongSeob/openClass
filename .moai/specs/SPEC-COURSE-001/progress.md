@@ -177,11 +177,81 @@ BUILD SUCCESSFUL — CourseSchemaIntegrationTest: tests=5, failures=0
 - AC-CRS-004(i)의 쓰기 측(수정·마감·삭제 API 호출) 재검증은 M3에서 수행한다.
 - AC-CRS-005(i)의 애플리케이션 계층(관리자 API를 통한 잘못된 상태값 요청 거부) 재검증은 M3에서 수행한다.
 
+### M3 — 관리자 강좌 관리 API (완료)
+
+**신규 산출물**:
+- `src/main/java/com/hongseob/openclass_ap/course/admin/CourseAdminController.java`
+- `src/main/java/com/hongseob/openclass_ap/course/dto/{CourseCreateRequest,CourseUpdateRequest}.java`
+- `src/main/java/com/hongseob/openclass_ap/common/exception/CapacityBelowEnrollmentException.java`
+- `src/test/java/com/hongseob/openclass_ap/course/admin/{CourseAdminApiIntegrationTest,CourseAdminStaticAbsenceTest}.java`
+
+**변경 산출물**:
+- `src/main/java/com/hongseob/openclass_ap/course/Course.java` — `updateDetails(title, description, capacity, startsAt, endsAt)`·`close()` 두 도메인 메서드를 추가했다. `@Setter`는 여전히 부착하지 않았고, 두 메서드 모두 `enrolled_count`를 파라미터로도 받지 않고 필드 목록에도 포함하지 않는다(plan.md §C.4.1-2).
+- `src/main/java/com/hongseob/openclass_ap/course/CourseService.java` — `create`·`update`·`close` 3개 관리자 메서드를 추가했다(전부 `@Transactional`). `update`는 `findById` → 404 예외 → 정원 축소 검증(409) → `Course.updateDetails` 호출 순서로 처리한다. "삭제" API는 별도 서비스 메서드를 두지 않고 컨트롤러가 `close`를 그대로 재사용한다(코드 중복 없이 REQ-ADM-008을 만족).
+- `src/main/java/com/hongseob/openclass_ap/common/exception/GlobalExceptionHandler.java` — 기존 `@RestControllerAdvice` 클래스에 `CapacityBelowEnrollmentException` → 409 핸들러 메서드만 추가했다(새 어드바이스 클래스 생성 금지, `DuplicateEmailException`의 409 처리 패턴을 그대로 재사용).
+- `src/test/java/com/hongseob/openclass_ap/course/CourseEnrolledCountMutationAbsenceTest.java` — AC-CRS-004(ii) 정적 검색의 오탐을 추가로 수정했다. `CapacityBelowEnrollmentException`의 예외 메시지 생성자 파라미터명(`enrolledCount`)이 매처에 걸려 오탐이 발생했다 — M2의 `CourseResponse.java` 제외와 동일한 근거(읽기 전용 값 전달, `Course` 엔티티를 전혀 참조하지 않음)로 `EXCLUDED_FILES`에 추가했다.
+
+**설계 요약**: 관리자 API 4종(`POST /api/admin/courses`, `PATCH /api/admin/courses/{id}`, `POST /api/admin/courses/{id}/close`, `DELETE /api/admin/courses/{id}`)을 `course/admin/CourseAdminController.java`에 배치했다(plan.md §C.4 — admin은 인가 관점이지 별도 도메인이 아니므로 `CourseService`를 그대로 재사용). 인가는 `SecurityConfig`의 기존 `/api/admin/**` → `hasRole("ADMIN")` 규칙이 처리하므로 `SecurityConfig`는 전혀 건드리지 않았다. 정원 1 미만 거부(400)는 `CourseCreateRequest`/`CourseUpdateRequest`의 `@Min(1)` bean validation이 Spring 기본 `@Valid` 처리로 담당하고(REQ-ADM-004), 정원 축소가 확정 인원 미만인지(409)는 `CourseService.update`가 애플리케이션 계층에서 명시적으로 검증한다(plan.md §C.3 — 두 계층의 책임을 코드 배치로 분리). 삭제 API는 물리 삭제 경로를 만들지 않고 `close()`와 동일한 마감 전이를 재사용한다(plan.md §C.1 설계 판단 4).
+
+**AC PASS/FAIL 매트릭스** (M3 대응분 AC-ADM-001~008):
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|-----------------------|----------------|
+| AC-ADM-001 (ADMIN 강좌 생성) | PASS | `./gradlew test --tests "...CourseAdminApiIntegrationTest.ADMIN이_강좌를_생성하면_201과_식별자가_반환되고_OPEN_확정인원0이다"` | PASS — 201 + `status=OPEN` + `enrolledCount=0` 확인, `courseRepository.findAll()` 1건 |
+| AC-ADM-002 (비관리자 접근 차단) | PASS | `...MEMBER_역할_토큰으로_관리자_강좌_API를_호출하면_모두_403이고_DB가_변하지_않는다` | PASS — 생성·수정·마감·삭제 4종 모두 403, 호출 전후 `course` 테이블 스냅샷 완전 동일 |
+| AC-ADM-003 (정원 1 미만 거부) | PASS | `...정원이_1_미만이면_생성과_수정_모두_400이고_강좌가_변경되지_않는다` | PASS — 생성 시 0·-1 모두 400(강좌 0건 생성), 기존 강좌 수정 시 0으로 축소 요청도 400(정원 10 그대로 유지) |
+| AC-ADM-004 (확정 인원 미만 축소 거부, 경계 포함) | PASS | `...정원을_확정인원_미만으로_축소하면_409이고_정확히_같은_값이면_허용된다` | PASS — 정원10/확정7 강좌를 6으로 축소 요청 시 409(정원 10·확정 7 그대로 유지), 정확히 7로 축소 요청 시 200(정원 7·확정 7 유지, 확정 인원 불변) |
+| AC-ADM-005 (정원 증설 반영, 승격 로직 부재) | PASS | (i) `...정원을_증설하면_200이고_확정인원은_변하지_않는다` (ii) `CourseAdminStaticAbsenceTest.프로덕션_소스에_대기명단_승격_관련_식별자가_전혀_없다` | (i) PASS — 정원 2→4 수정 시 200, 확정 인원 2 그대로 유지(DB 재조회로도 확인). (ii) PASS — `waitlist`/`promote`/`승격` 정적 검색 0건 |
+| AC-ADM-006 (강좌 마감 전이) | PASS | `...ADMIN이_마감_API를_호출하면_200이고_상태가_CLOSED가_되며_행이_삭제되지_않는다` | PASS — 200 + `status=CLOSED`, `courseRepository.findById` 여전히 존재 확인 |
+| AC-ADM-007 (물리 삭제 금지) | PASS | (i) `...삭제_API를_호출해도_행이_존재하고_상태만_CLOSED로_전이한다` (ii) `CourseAdminStaticAbsenceTest.프로덕션_소스에_course에_대한_물리_삭제_호출이_없다` | (i) PASS — 200 + `status=CLOSED`, 행 존재(`count()==1`) 확인. (ii) PASS — `course`에 대한 `.delete(`/`.remove(` 호출 지점 정적 검색 0건 |
+| AC-ADM-008 (존재하지 않는 강좌 변경 요청) | PASS | `...존재하지_않는_강좌를_수정_마감_삭제하면_모두_404이고_DB가_변하지_않는다` | PASS — 수정·마감·삭제 3종 모두 404, 호출 전후 `course` 테이블 스냅샷 완전 동일 |
+
+**AC-CRS-004(i) 전체 승격 (M1/M2 인수인계 항목 최종 해소)**:
+
+M2까지 "쓰기 측(수정·마감·삭제 API)이 아직 존재하지 않아 미검증"으로 남아있던 부분을 M3의 신규 관리자 API로 검증했다. AC-ADM-004(정원 수정 2회)·AC-ADM-005(정원 수정)·AC-ADM-006(마감)·AC-ADM-007(삭제=마감 재사용) 테스트 전체에서 매 호출마다 `enrolled_count`(DB 원본 컬럼 또는 응답 `enrolledCount` 필드)가 요청 전후로 변하지 않음을 명시적으로 단언했다(위 매트릭스의 "확정 인원은 변하지 않는다" 계열 단언 참조). AC-ADM-001(생성)·AC-CAT-001~005(조회)는 M1·M2에서 이미 검증 완료.
+
+> **AC-CRS-004 최종 상태 (M3)**: (i) 생성·조회·수정·마감·삭제 5개 API 경로 전부 검증 완료, 매번 `enrolled_count`는 0 또는 호출 전 값 그대로 유지됨을 확인 — **PASS로 승격 (PASS-WITH-DEBT 해소)**. (ii) 정적 검색은 M1에서 이미 PASS, M3에서 `CapacityBelowEnrollmentException.java` 제외 갱신 후 재확인 PASS 유지.
+
+**AC-CRS-005(i) 전체 승격 (M1/M2 인수인계 항목 최종 해소)**:
+
+관리자 수정 API(`PATCH /api/admin/courses/{id}`)의 요청 바디는 `status` 필드를 아예 받지 않는다(`CourseUpdateRequest`에 `status` 필드 없음 — 강좌명·설명·정원·일정만 수정 가능, plan.md §C.2 API 계약과 정확히 일치). 따라서 "잘못된 상태값을 담은 관리자 요청"이라는 입력 자체가 이 API로는 구조적으로 만들어질 수 없다 — 이는 REQ-CRS-005/AC-CRS-005(i)가 요구하는 "애플리케이션 계층에서 잘못된 상태값 요청을 거부"를 컴파일 타임/역직렬화 계층에서 원천 차단하는 것과 동등하거나 더 강한 방어다(잘못된 값이 Jackson 역직렬화 단계에서 무시되고, 상태 전이는 오직 `close()` 전용 엔드포인트로만 가능).
+
+> **AC-CRS-005 최종 상태 (M3)**: (i) 관리자 API가 `status`를 요청 필드로 노출하지 않아 잘못된 상태값 요청 자체가 구조적으로 불가능함을 `CourseUpdateRequest` 코드 검토로 확인 — **PASS로 승격 (PASS-WITH-DEBT 해소)**. (ii) DB 계층은 M1에서 이미 PASS.
+
+**빌드/테스트 검증**:
+```
+$ ./gradlew compileJava compileTestJava
+BUILD SUCCESSFUL
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.admin.*"
+BUILD SUCCESSFUL — CourseAdminApiIntegrationTest: tests=8, failures=0
+                    CourseAdminStaticAbsenceTest: tests=2, failures=0
+```
+(격리 실행. 전체 `course.*` 패키지를 한 프로세스에서 동시 실행하면 M1/M2에서도 관찰된 동일한 Docker/Testcontainers 환경 플레이키니스(`HikariPool` 타임아웃/`Connection refused`)가 발생했으나, `CourseAdminApiIntegrationTest`·`CourseSchemaIntegrationTest`·`CourseCatalogApiIntegrationTest`를 각각 격리 재실행하면 전부 통과함을 확인 — 이 SPEC의 코드 변경이 원인이 아니다.)
+
+**커버리지 (course + course/dto + course/admin 패키지, jacoco, 3개 격리 실행분 병합)**:
+- `com/hongseob/openclass_ap/course`: INSTRUCTION 100.0% (209/209), LINE 100.0% (50/50), METHOD 100.0% (17/17), CLASS 100.0% (4/4)
+- `com/hongseob/openclass_ap/course/dto`: INSTRUCTION 100.0% (128/128), LINE 100.0% (18/18), METHOD 100.0% (6/6), CLASS 100.0% (4/4)
+- `com/hongseob/openclass_ap/course/admin`: INSTRUCTION 100.0% (33/33), LINE 100.0% (7/7), METHOD 100.0% (5/5), CLASS 100.0% (1/1)
+- 측정 방법: `CourseSchemaIntegrationTest`·`CourseCatalogApiIntegrationTest`·`course.admin.*`를 각각 격리 실행한 jacoco exec 3건을 `org.jacoco.core.tools.ExecFileLoader`로 병합한 뒤 `jacocoTestReport`로 집계(전체 스위트 동시 실행 시의 환경 플레이키니스를 우회하기 위함 — 각 exec 자체는 해당 클래스의 정상 격리 실행 결과).
+
+**정적 검증**:
+- `grep -rn "AskUserQuestion" src/` → 0건
+- `grep -rn "waitlist\|promote\|승격" src/main` → 0건 (AC-ADM-005ii)
+- `grep -rn "\.delete(\|\.remove(" src/main/java/.../course` → 0건 (AC-ADM-007ii)
+- `git diff --stat -- src/main/java/.../member/` → 빈 결과(member/ 미접촉)
+- `git diff --stat -- src/main/java/.../SecurityConfig.java` → 빈 결과(M3는 인가 규칙을 새로 만들지 않으므로 이 파일 자체를 건드리지 않았다 — M2와 달리 신규 매처 추가도 불필요)
+- `git diff -- .../GlobalExceptionHandler.java` → 순수 추가(신규 핸들러 메서드 1개), 기존 핸들러 무변경 확인
+
+**M4 인수인계 필수 항목**:
+- AC-NFR-001(입력 검증 보강 — 강좌명 누락, 종료 일시가 시작 일시보다 이른 값, 정원이 정수가 아닌 값)은 M3 범위(AC-ADM-001~008)에 포함되지 않으므로 M4에서 구현·검증한다.
+- AC-NFR-003(커버리지 85%+ 및 LSP/타입/린트 에러 0건)의 SPEC 전체 최종 확인은 M4에서 수행한다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-- `run_status`: M1-M2 complete, M3-M4 pending
-- `ac_pass_count`: 8 (AC-CRS-001/002/003, AC-CAT-001~005)
-- `ac_pass_with_debt_count`: 2 (AC-CRS-004 — 쓰기 측만 잔여, M3에서 승격 예정; AC-CRS-005 — 애플리케이션 계층만 잔여, M3에서 승격 예정)
+- `run_status`: M1-M3 complete, M4 pending
+- `ac_pass_count`: 16 (AC-CRS-001~005, AC-CAT-001~005, AC-ADM-001~008 — AC-CRS-004/005는 M3에서 PASS-WITH-DEBT → PASS로 승격되어 이 카운트에 포함)
+- `ac_pass_with_debt_count`: 0 (M3에서 AC-CRS-004·AC-CRS-005 잔여 검증을 모두 해소)
 - `ac_fail_count`: 0
 - `new_warnings_or_lints_introduced`: 0 (Hibernate `@Check`/`@Checks` deprecation Note 1건 — M1에서 이미 기록, 컴파일 에러 아님)
 

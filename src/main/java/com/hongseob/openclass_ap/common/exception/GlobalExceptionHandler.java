@@ -41,4 +41,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponse.of("COURSE_NOT_FOUND", ex.getMessage()));
     }
+
+    /**
+     * 정원을 확정 인원 미만으로 축소하는 요청을 409 단일 코드로 거부한다
+     * (plan.md §C.3 — 400은 정원 1 미만 같은 입력 형식 오류에만 쓴다. REQ-ADM-005).
+     */
+    @ExceptionHandler(CapacityBelowEnrollmentException.class)
+    public ResponseEntity<ErrorResponse> handleCapacityBelowEnrollment(CapacityBelowEnrollmentException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of("CAPACITY_BELOW_ENROLLMENT", ex.getMessage()));
+    }
 }

@@ -92,4 +92,28 @@ public class Course {
             LocalDateTime startsAt, LocalDateTime endsAt) {
         return new Course(title, description, capacity, startsAt, endsAt);
     }
+
+    /**
+     * 관리자가 강좌명·설명·정원·일정을 수정한다(plan.md §F M3 / §C.4.1-2).
+     * {@code enrolled_count}는 파라미터로도 받지 않고 이 메서드가 건드리는 필드
+     * 목록에도 없다 — 정원 축소가 확정 인원 미만인지 여부는 이 메서드 호출
+     * 이전에 서비스 계층이 검증을 마친 뒤에만 호출된다(plan.md §C.3).
+     */
+    public void updateDetails(String title, String description, Integer capacity,
+            LocalDateTime startsAt, LocalDateTime endsAt) {
+        this.title = title;
+        this.description = description;
+        this.capacity = capacity;
+        this.startsAt = startsAt;
+        this.endsAt = endsAt;
+    }
+
+    /**
+     * 강좌를 마감 상태로 전이한다. 물리 삭제 경로는 이 클래스에 존재하지 않으며,
+     * "삭제" API도 내부적으로 이 메서드를 재사용한다(REQ-ADM-008, INV-CRS-004,
+     * plan.md §C.1 설계 판단 4).
+     */
+    public void close() {
+        this.status = CourseStatus.CLOSED;
+    }
 }
