@@ -2,7 +2,7 @@
 id: SPEC-COURSE-001
 title: "강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리 — 진행 기록"
 version: "0.1.2"
-status: draft
+status: in-progress
 created: 2026-08-15
 updated: 2026-08-16
 author: manager-spec
@@ -70,11 +70,55 @@ tier: M
 
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+### M1 — 강좌 엔티티 및 제약 (완료)
+
+**신규 산출물**:
+- `src/main/java/com/hongseob/openclass_ap/course/{Course,CourseStatus,CourseRepository}.java`
+- `src/test/java/com/hongseob/openclass_ap/course/{CourseSchemaIntegrationTest,CourseEnrolledCountMutationAbsenceTest}.java`
+
+**설계 요약**: `Member`의 `private` 생성자 + 정적 팩토리 + 세터 부재 규약(plan.md §C.4.1-2)을 그대로 따랐다. `Course.create(title, description, capacity, startsAt, endsAt)`는 `enrolled_count`를 파라미터로 받지 않고 정적 팩토리 내부에서 항상 0으로 초기화하며, 모집 상태는 항상 `OPEN`으로 시작한다. `@Setter`는 붙이지 않았고 `enrolled_count`를 변경하는 메서드는 어떤 이름으로도 정의하지 않았다. CHECK 제약 3종은 `@org.hibernate.annotations.Checks({@Check(...) x3})`로, 기본값 2종은 `@ColumnDefault`로 명시했다(plan.md §C.1.1). Hibernate 7.4.1에서 `@Check`/`@Checks`가 `@Deprecated`로 표시되지만(컴파일 Note만 발생, 에러 아님) — acceptance.md가 이 애노테이션을 생성 수단으로 명시적으로 지정하고 있어 그대로 사용했다.
+
+**AC PASS/FAIL 매트릭스** (M1 대응분 AC-CRS-001~005):
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|-----------------------|----------------|
+| AC-CRS-001 (필수 속성 보유) | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.course.CourseSchemaIntegrationTest.강좌를_생성하면_설명을_제외한_모든_필수_컬럼이_NULL이_아니다"` | PASS — id/title/capacity/enrolledCount/startsAt/endsAt/status/createdAt 전부 not-null 확인 |
+| AC-CRS-002 (정원 1 미만 DB 제약 거부, 1은 허용) | PASS | `...CourseSchemaIntegrationTest.정원이_1_미만이면_DB_제약이_거부하고_1이면_허용한다` | PASS — `capacity=0` INSERT → `DataIntegrityViolationException`(`ck_course_capacity_min`), `capacity=1` INSERT → 성공 |
+| AC-CRS-003 (확정 인원 CHECK: 0≤enrolled_count≤capacity) | PASS | `...확정_인원이_정원을_초과하거나_음수이면_DB_제약이_거부하고_값이_유지된다` | PASS — `enrolled_count=6`(capacity=5 초과) 및 `-1` 모두 `DataIntegrityViolationException`(`ck_course_enrolled_range`), UPDATE 후에도 5로 유지 확인 |
+| AC-CRS-004 (확정 인원 변경 경로 부재) | **PASS-WITH-DEBT** | (i) `...강좌_생성_경로로_만든_모든_강좌의_확정_인원은_0이다` (ii) `CourseEnrolledCountMutationAbsenceTest.프로덕션_소스에서_Course_엔티티_외에는_enrolled_count_참조가_전혀_없다` | (i) PASS — 생성 경로 2건 모두 enrolled_count=0. (ii) PASS — `Course.java` 제외 전체 `src/main/java`에서 `enrolledCount`/`enrolled_count` 참조 0건. **단, AC 원문의 "생성·수정·마감·삭제·조회 API를 각각 1회씩 호출" 중 수정·마감·삭제·조회 API는 M2/M3에서 만들어지므로 이 마일스톤에서는 호출할 대상이 없어 검증 불가** — M2(조회)·M3(수정·마감·삭제)에서 해당 API 구현 후 이 AC를 재검증하여 PASS로 승격 예정 |
+| AC-CRS-005 (모집 상태 도메인 제한, 2계층) | **PASS-WITH-DEBT** | (ii) `...모집_상태가_OPEN_CLOSED가_아니면_DB_제약이_거부하고_값이_유지된다` | (ii) DB 계층 PASS — `status='ARCHIVED'` INSERT/UPDATE 모두 `DataIntegrityViolationException`(`ck_course_status`), 값 `OPEN` 유지 확인. **(i) 애플리케이션 API 경로 검증은 관리자 API가 없는 M1에서는 대상이 없어 생략** — M3(관리자 강좌 수정 API)에서 재검증하여 PASS로 승격 예정 |
+
+**빌드/테스트 검증**:
+```
+$ ./gradlew compileJava
+BUILD SUCCESSFUL
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.*"
+BUILD SUCCESSFUL — CourseSchemaIntegrationTest: tests=5, failures=0, errors=0
+                    CourseEnrolledCountMutationAbsenceTest: tests=1, failures=0, errors=0
+```
+(컨테이너 종료 시점의 `PSQLException: I/O error ... EOFException`/`HHH000478 drop table` 오류는 Testcontainers 리소스 정리 과정에서 발생한 것으로 테스트 결과 자체에는 영향 없음 — SPEC-AUTH-001 progress.md에서도 동일 신호가 관찰된 기존 알려진 로컬 환경 플레이키니스이며 전체 스위트 동시 실행이 아닌 격리 실행이었으므로 새 동시-실행 충돌 사례는 아니다.)
+
+**커버리지 (course 패키지, jacoco)**:
+- `com/hongseob/openclass_ap/course`: INSTRUCTION 100.0% (52/52), LINE 100.0% (14/14), METHOD 100.0% (3/3), CLASS 100.0% (2/2 — `CourseRepository`는 인터페이스라 별도 클래스 카운트에 미집계)
+
+**정적 검증**:
+- `grep -rn "enrolledCount\|enrolled_count" src/main/java --include="*.java" | grep -v "course/Course.java"` → 0건 (AC-CRS-004(ii))
+- `grep -rn "AskUserQuestion" src/` → 0건 (subagent boundary)
+- `git diff --stat` (기존 추적 파일) → 변경 없음. `git status --porcelain`은 신규 `course/` 소스·테스트 파일만 표시 — `member/`, `SecurityConfig.java` 등 PRESERVE 대상 미접촉 확인
+
+**M2/M3 인수인계 필수 항목**:
+- AC-CRS-004(i)의 API 호출 전체 시나리오(수정·마감·삭제·조회) 재검증은 M2(조회)·M3(수정·마감·삭제) API 구현 완료 후 수행한다.
+- AC-CRS-005(i)의 애플리케이션 계층(관리자 API를 통한 잘못된 상태값 요청 거부) 재검증은 M3에서 수행한다.
+- `SecurityConfig` 공개 경로 확장(D1, `/api/courses/*` 매처 추가)은 M2에서 가장 먼저 수행해야 한다(plan.md §C.2.1).
 
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+- `run_status`: M1 complete, M2-M4 pending
+- `ac_pass_count`: 3 (AC-CRS-001/002/003 완전 PASS)
+- `ac_pass_with_debt_count`: 2 (AC-CRS-004/005 — 각각 M2/M3에서 API 계층 재검증 예정)
+- `ac_fail_count`: 0
+- `new_warnings_or_lints_introduced`: 0 (Hibernate `@Check`/`@Checks` deprecation Note 1건 — 컴파일 에러 아님, acceptance.md가 명시한 생성 수단이므로 유지)
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
