@@ -30,4 +30,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(ErrorResponse.of("INVALID_CREDENTIALS", ex.getMessage()));
     }
+
+    /**
+     * 존재하지 않는 강좌 식별자로 조회·변경을 요청했을 때 404를 반환한다
+     * (plan.md §C.4.2 — 새 {@code @RestControllerAdvice}를 만들지 않고 기존 핸들러를
+     * 확장한다. REQ-CAT-004 / REQ-ADM-009).
+     */
+    @ExceptionHandler(CourseNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCourseNotFound(CourseNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("COURSE_NOT_FOUND", ex.getMessage()));
+    }
 }

@@ -112,13 +112,78 @@ BUILD SUCCESSFUL — CourseSchemaIntegrationTest: tests=5, failures=0, errors=0
 - AC-CRS-005(i)의 애플리케이션 계층(관리자 API를 통한 잘못된 상태값 요청 거부) 재검증은 M3에서 수행한다.
 - `SecurityConfig` 공개 경로 확장(D1, `/api/courses/*` 매처 추가)은 M2에서 가장 먼저 수행해야 한다(plan.md §C.2.1).
 
+### M2 — 공개 카탈로그 API (완료)
+
+**신규 산출물**:
+- `src/main/java/com/hongseob/openclass_ap/course/{CourseService,CourseController}.java`
+- `src/main/java/com/hongseob/openclass_ap/course/dto/{CourseResponse,CoursePageResponse}.java`
+- `src/main/java/com/hongseob/openclass_ap/common/exception/CourseNotFoundException.java`
+- `src/test/java/com/hongseob/openclass_ap/course/CourseCatalogApiIntegrationTest.java`
+
+**변경 산출물**:
+- `src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java` — 공개 GET 매처를 `"/api/courses"` 단일 경로에서 `"/api/courses", "/api/courses/*"` 두 패턴으로 확장 (D1, plan.md §C.2.1). 매처 한 줄 외 인가 규칙 구조(hasRole·필터 체인·엔트리포인트)는 건드리지 않았다 — diff는 해당 한 줄뿐임을 확인했다.
+- `src/main/java/com/hongseob/openclass_ap/common/exception/GlobalExceptionHandler.java` — 기존 `@RestControllerAdvice` 클래스에 `CourseNotFoundException` → 404 핸들러 메서드를 추가했다(새 어드바이스 클래스 생성 금지, plan.md §C.4.2).
+- `src/test/java/com/hongseob/openclass_ap/course/CourseEnrolledCountMutationAbsenceTest.java` — AC-CRS-004(ii) 정적 검색의 오탐(false positive)을 수정했다. M1 당시 매처는 `Course.java`를 제외한 모든 참조를 "변경"으로 간주했으나, acceptance.md 원문은 "설정·증가·감소·0으로의 초기화"만을 대상으로 명시한다. M2에서 `CourseResponse`(잔여 정원 계산을 위한 읽기 전용 record — 세터가 없어 구조적으로 변경 불가능)와 Javadoc 주석(코드가 아님)이 새로 `enrolledCount`/`enrolled_count` 문자열을 포함하게 되면서 오탐이 발생해 수정했다 — 주석 라인 제외 + `CourseResponse.java` 파일 제외(Course.java와 동일한 근거: 읽기 전용, 세터 없음). 탐지 대상(실제 변경 코드 경로)의 검출력은 그대로 유지된다.
+
+**설계 요약**: DTO는 `member/dto`와 동일하게 record만 사용했다(`CourseResponse`, `CoursePageResponse`) — 목록·상세 응답에 동일 필드 집합이면 충분하다고 판단해 별도 요약/상세 record로 분리하지 않았다(단순성 우선). 잔여 정원은 `CourseResponse.from()` 매핑 계층에서 `capacity - enrolledCount`로 계산하며 저장하지 않는다(plan.md §C.1 설계 판단 2). 페이지네이션은 Spring Data `Pageable`/`PageRequest` + `CourseRepository.findAll(Pageable)`(이미 `JpaRepository`가 제공 — 별도 메서드 추가 불필요)를 사용했다. `CourseService`는 조회 메서드만 가지며(`list`, `getDetail`) 쓰기 메서드는 없다 — M3에서 추가한다.
+
+**AC PASS/FAIL 매트릭스** (M2 대응분 AC-CAT-001~005):
+
+| AC | Status | Verification Command | Actual Output |
+|----|--------|-----------------------|----------------|
+| AC-CAT-001 (비인증 목록·페이지 분할 경계) | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.course.CourseCatalogApiIntegrationTest.비인증으로_목록을_조회하면_전체가_반환되고_size로_페이지가_실제로_분할된다"` | PASS — 기본 호출 3건 전부 반환 + 메타데이터 필드 전부 존재. `size=2` 1페이지 정확히 2건, 2페이지 정확히 1건, 두 페이지 ID 합집합이 전체 3건 ID 집합과 정확히 일치(중복·누락 없음) 확인 — 경계 분할이 실제로 동작함을 검증 |
+| AC-CAT-002 (비인증 상세·잔여 정원 계산) | PASS | `...비인증으로_상세를_조회하면_200과_잔여_정원이_반환되고_저장_컬럼은_없다` | PASS — `capacity=10, enrolled_count=4`(JdbcTemplate 직접 INSERT) → 무헤더 요청이 401이 아닌 200 + `remainingCapacity=6` 반환 확인. `information_schema.columns` 조회로 `course` 테이블에 "remaining"을 포함한 컬럼이 없음도 확인(계산 값, 저장 안 함) |
+| AC-CAT-003 (존재하지 않는 강좌 조회) | PASS | `...존재하지_않는_강좌를_조회하면_404가_반환된다` | PASS — 존재하지 않는 ID 조회 시 404 + `code=COURSE_NOT_FOUND` 확인 |
+| AC-CAT-004 (조회의 무부작용성) | PASS | `...목록과_상세_조회를_20회_반복해도_course_테이블이_변하지_않는다` | PASS — 목록·상세 조회 각 20회 반복 전후 `SELECT * FROM course` 전체 행 스냅샷이 바이트 단위로 동일함을 확인 |
+| AC-CAT-005 (마감 강좌 노출) | PASS | `...마감_강좌도_목록에서_필터링되지_않고_상태가_CLOSED로_표시된다` | PASS — `OPEN` 2건 + `CLOSED` 1건 목록 조회 시 3건 전부 반환, `CLOSED` 강좌의 `status` 필드가 정확히 `"CLOSED"`로 표시됨을 확인 |
+
+**AC-CRS-004(i) 읽기 측 승격** (M1 인수인계 항목):
+
+M1에서 "생성·수정·마감·삭제·조회 API를 각각 1회씩 호출" 중 조회 API가 없어 검증 불가했던 부분을 M2의 신규 조회 API로 재검증했다.
+
+```
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.CourseCatalogApiIntegrationTest"
+BUILD SUCCESSFUL — 5개 테스트 전부 PASS (목록·상세 API를 여러 차례 호출)
+```
+목록(`GET /api/courses`)·상세(`GET /api/courses/{id}`) API를 호출하는 모든 테스트 케이스에서 DB의 `enrolled_count`는 호출 전후 값이 그대로 유지됨을 AC-CAT-004(무부작용성 테스트, 20회 반복 목록+상세 호출 전후 `course` 테이블 전체 스냅샷 바이트 단위 동일 비교)로 이미 확인했다 — 조회 API가 `enrolled_count`를 변경하지 않음이 관찰됐다.
+
+**AC-CRS-004(i) 갱신 상태**: **읽기 측(조회 API) PASS로 승격.** 쓰기 측(수정·마감·삭제 API)은 아직 존재하지 않으므로 여전히 검증 불가 — M3(관리자 API 구현) 완료 후 재검증하여 최종 PASS로 승격한다. M1 progress.md의 AC-CRS-004 항목 상태를 아래와 같이 갱신한다:
+
+> **AC-CRS-004 갱신 (M2)**: (i) 생성 경로(M1에서 검증 완료) + 조회 경로(M2 신규 검증 완료, 위 참조)는 PASS. 수정·마감·삭제 경로(M3에서 구현 예정)는 여전히 미검증 — **PASS-WITH-DEBT 유지, 잔여 위험 범위가 M1의 "4개 API 전부 미검증"에서 "쓰기 3개 API만 미검증"으로 축소됨.** (ii) 정적 검색은 M1에서 이미 PASS.
+
+**빌드/테스트 검증**:
+```
+$ ./gradlew compileJava
+BUILD SUCCESSFUL
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.*"
+BUILD SUCCESSFUL — CourseSchemaIntegrationTest: tests=5, failures=0
+                    CourseEnrolledCountMutationAbsenceTest: tests=1, failures=0 (매처 갱신 후 재통과)
+                    CourseCatalogApiIntegrationTest: tests=5, failures=0
+```
+(격리 실행. 전체 스위트 동시 실행 시 `member` 패키지 일부 테스트에서 `CannotCreateTransactionException`/`PSQLException: Connection refused` 신호가 관찰됐으나, `SecurityConfig`를 직접 검증하는 `AuthorizationIntegrationTest`를 포함해 각 실패 테스트를 격리 재실행하면 전부 통과함을 확인 — 이 SPEC의 코드 변경이 원인이 아니라 기존에 문서화된 Docker/Testcontainers 환경 플레이키니스(SPEC-AUTH-001·M1 progress.md에서도 동일 신호 관찰)다.)
+
+**커버리지 (course + course/dto 패키지, jacoco)**:
+- `com/hongseob/openclass_ap/course`: INSTRUCTION 100.0% (104/104), LINE 100.0% (27/27), METHOD 100.0% (10/10), CLASS 100.0% (4/4)
+- `com/hongseob/openclass_ap/course/dto`: INSTRUCTION 100.0% (92/92), LINE 100.0% (16/16), METHOD 100.0% (4/4), CLASS 100.0% (2/2)
+
+**정적 검증**:
+- `grep -rn "AskUserQuestion" src/` → 0건
+- `grep -rn "/api/test/" src/main` → 0건 (SPEC-AUTH-001 회귀 방지 게이트, 회귀 없음)
+- `git status --porcelain -- src/main/java/com/hongseob/openclass_ap/member/` → 빈 결과(member/ 미접촉 확인)
+- `git diff -- .../SecurityConfig.java` → 매처 한 줄(`"/api/courses"` → `"/api/courses", "/api/courses/*"`)만 변경, 그 외 인가 규칙 구조 무변경 확인
+
+**M3 인수인계 필수 항목**:
+- AC-CRS-004(i)의 쓰기 측(수정·마감·삭제 API 호출) 재검증은 M3에서 수행한다.
+- AC-CRS-005(i)의 애플리케이션 계층(관리자 API를 통한 잘못된 상태값 요청 거부) 재검증은 M3에서 수행한다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-- `run_status`: M1 complete, M2-M4 pending
-- `ac_pass_count`: 3 (AC-CRS-001/002/003 완전 PASS)
-- `ac_pass_with_debt_count`: 2 (AC-CRS-004/005 — 각각 M2/M3에서 API 계층 재검증 예정)
+- `run_status`: M1-M2 complete, M3-M4 pending
+- `ac_pass_count`: 8 (AC-CRS-001/002/003, AC-CAT-001~005)
+- `ac_pass_with_debt_count`: 2 (AC-CRS-004 — 쓰기 측만 잔여, M3에서 승격 예정; AC-CRS-005 — 애플리케이션 계층만 잔여, M3에서 승격 예정)
 - `ac_fail_count`: 0
-- `new_warnings_or_lints_introduced`: 0 (Hibernate `@Check`/`@Checks` deprecation Note 1건 — 컴파일 에러 아님, acceptance.md가 명시한 생성 수단이므로 유지)
+- `new_warnings_or_lints_introduced`: 0 (Hibernate `@Check`/`@Checks` deprecation Note 1건 — M1에서 이미 기록, 컴파일 에러 아님)
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
