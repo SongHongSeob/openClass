@@ -1,10 +1,10 @@
 ---
 id: SPEC-COURSE-001
 title: "강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리"
-version: "0.1.1"
+version: "0.1.2"
 status: draft
 created: 2026-08-15
-updated: 2026-08-15
+updated: 2026-08-16
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -23,6 +23,7 @@ depends_on: [SPEC-AUTH-001]
 |---|---|---|---|
 | 0.1.0 | 2026-08-15 | manager-spec | 최초 작성 (draft) — SPEC-ENROLLMENT-001 3분할 중 2번 |
 | 0.1.1 | 2026-08-15 | manager-spec | 2차 감사 지적 반영 — C1(REQ-CRS-005의 저장 계층 금지를 DB enum/CHECK 제약 + 우회 INSERT 단언으로 실제 검증), C2(§A.2 `enrolled_count` "항상 0" 문구를 코드 경로 범위로 정정), C3/E6(REQ-NFR-003에서 TDD 프로세스 절 분리 → plan.md §D 제약으로 이동, DoD 문구 정정) |
+| 0.1.2 | 2026-08-16 | manager-spec | plan-auditor 1회차 FAIL(0.75) 결함 D1~D10 수정. spec.md 해당분: D4(REQ-CRS-004를 INV-CRS-003과 동일 강도로 강화 — "0이 아닌 값으로" 한정 제거, 리셋 포함 일체 변경 금지. 테스트 픽스처 예외는 §A.2 용어 정의로 이관), D5(REQ-ADM-005 정원 축소 거부 응답을 **409 단일 확정** — `GlobalExceptionHandler`의 도메인 규칙 위반 → 409 선례를 따름), D9(REQ-ADM-006에서 타 SPEC 미래 동작에 대한 `shall` 의무 제거 → §D 범위 제외의 교차 참조 주석으로 강등), D1(REQ-CAT-001에 상세 경로 비인증 접근 명시) |
 
 ---
 
@@ -40,7 +41,9 @@ depends_on: [SPEC-AUTH-001]
 |---|---|---|
 | 강좌 | `Course` | 정원과 일정을 가진 수강 대상 단위 |
 | 정원 | `capacity` | 확정 수강신청이 도달할 수 있는 상한. 1 이상의 정수 |
-| 확정 인원 | `enrolled_count` | 현재 확정된 수강신청 수. **이 SPEC의 코드 경로는 이 값을 변경하지 않는다** (REQ-CRS-004). 값 자체를 0으로 강제한다는 뜻은 아니며, 테스트 픽스처는 애플리케이션 계층을 우회해 0이 아닌 값을 직접 설정할 수 있다 — 잔여 정원 계산·정원 축소 경계 검증에 필요하다 (AC-CAT-002, AC-ADM-004/005) |
+| 확정 인원 | `enrolled_count` | 현재 확정된 수강신청 수. **이 SPEC의 프로덕션 코드 경로는 이 값을 일체 변경하지 않는다** (REQ-CRS-004 / INV-CRS-003) |
+
+> **테스트 픽스처 예외 (D4 — REQ-CRS-004의 예외가 아니라 적용 범위의 정의다)**: REQ-CRS-004와 INV-CRS-003이 금지하는 것은 **프로덕션 코드 경로**에서의 `enrolled_count` 변경이다. 테스트 픽스처가 `JdbcTemplate` 등으로 애플리케이션 계층을 **우회하여** 0이 아닌 값을 직접 INSERT/UPDATE하는 것은 이 금지의 대상이 아니며, 잔여 정원 계산·정원 축소 경계 검증에 필요하다 (AC-CAT-002, AC-ADM-004/005). 즉 "값이 항상 0"이 아니라 "값을 바꾸는 프로덕션 경로가 없다"가 요구사항의 내용이다. 이 예외를 요구사항 문구 안에 섞어 쓰면(예: "0이 아닌 값으로 변경하지 않는다") **0으로 되돌리는 편의 메서드**가 요구사항 문구는 통과하되 불변식은 위반하는 틈이 생기므로, 예외 서술은 요구사항이 아니라 이 용어 정의에 둔다.
 | 잔여 정원 | — | `capacity - enrolled_count`. 저장하지 않고 조회 시 계산한다 |
 | 모집 상태 | `CourseStatus` | `OPEN`(모집 중) 또는 `CLOSED`(모집 마감) |
 
@@ -62,12 +65,12 @@ depends_on: [SPEC-AUTH-001]
 - **REQ-CRS-001** (Ubiquitous) — 강좌 레코드는 식별자·강좌명·설명·정원·확정 인원·시작 일시·종료 일시·모집 상태·생성 일시를 보유 **shall**한다.
 - **REQ-CRS-002** (Ubiquitous) — 데이터베이스는 정원이 1 미만인 강좌 행의 저장을 **제약 조건 수준에서** 거부 **shall**한다. 애플리케이션 검증만을 유일한 방어선으로 삼아서는 **shall not** 한다.
 - **REQ-CRS-003** (Ubiquitous) — 데이터베이스는 `0 ≤ 확정 인원 ≤ 정원` 조건을 CHECK 제약으로 강제 **shall**하며, 이를 위반하는 갱신을 거부 **shall**한다.
-- **REQ-CRS-004** (Ubiquitous) — 이 SPEC 범위의 어떤 코드 경로도 `enrolled_count` 값을 0이 아닌 값으로 변경 **shall not**한다. `enrolled_count`의 변경 권한은 `SPEC-ENROLLMENT-001`의 큐 워커가 단독 보유 **shall**한다.
+- **REQ-CRS-004** (Ubiquitous) — 이 SPEC 범위의 어떤 프로덕션 코드 경로도 `enrolled_count` 값을 변경 **shall not**한다 — **설정(set)·증가·감소·0으로의 초기화(reset)를 모두 포함한다.** `enrolled_count`의 변경 권한은 `SPEC-ENROLLMENT-001`의 큐 워커가 단독 보유 **shall**한다. (적용 범위와 테스트 픽스처 취급은 §A.2 참조 — INV-CRS-003과 동일 강도다.)
 - **REQ-CRS-005** (Ubiquitous) — 모집 상태는 §A.3의 두 값(`OPEN`, `CLOSED`) 중 하나 **shall**이며, 데이터베이스는 그 외의 값의 저장을 **제약 조건 수준에서**(enum 타입 또는 CHECK) 거부 **shall**한다. 애플리케이션 계층 검증만을 유일한 방어선으로 삼아서는 **shall not** 한다 — REQ-CRS-002/003과 동일한 방어선 구성이다.
 
 ### B.2 강좌 카탈로그 조회 (CAT)
 
-- **REQ-CAT-001** (Ubiquitous) — 강좌 카탈로그 API는 인증 없이 목록과 상세를 조회할 수 있게 **shall**한다.
+- **REQ-CAT-001** (Ubiquitous) — 강좌 카탈로그 API는 인증 없이 목록과 상세를 조회할 수 있게 **shall**한다. **목록 경로(`/api/courses`)와 상세 경로(`/api/courses/{id}`) 양쪽 모두** `Authorization` 헤더 없이 접근 가능해야 하며, 상세 경로에 대해 인증을 요구 **shall not**한다 (검증: AC-CAT-001·AC-CAT-002).
 - **REQ-CAT-002** (Event-driven) — **When** 강좌 목록 조회 요청이 도착하면, 카탈로그 서비스는 각 강좌의 식별자·강좌명·정원·확정 인원·잔여 정원·시작/종료 일시·모집 상태를 포함한 페이지네이션된 목록을 반환 **shall**한다.
 - **REQ-CAT-003** (Event-driven) — **When** 존재하는 강좌 식별자로 상세 조회 요청이 도착하면, 카탈로그 서비스는 해당 강좌의 상세 정보와 계산된 잔여 정원을 반환 **shall**한다.
 - **REQ-CAT-004** (Event-driven) — **When** 존재하지 않는 강좌 식별자로 조회 요청이 감지되면, 카탈로그 서비스는 404를 반환 **shall**한다.
@@ -80,8 +83,10 @@ depends_on: [SPEC-AUTH-001]
 - **REQ-ADM-002** (State-driven) — **While** 인증된 요청자의 역할이 `ADMIN`이 아니면, 관리자 강좌 API는 요청을 처리하지 않고 403을 반환 **shall**한다.
 - **REQ-ADM-003** (Event-driven) — **When** 관리자가 강좌명·정원·시작/종료 일시를 담아 생성을 요청하면, 관리자 API는 모집 상태 `OPEN`·확정 인원 0인 강좌를 생성하고 식별자를 반환 **shall**한다.
 - **REQ-ADM-004** (Ubiquitous) — 관리자 API는 정원이 1 미만인 값으로의 강좌 생성 또는 수정을 거부 **shall**한다.
-- **REQ-ADM-005** (Event-driven) — **When** 관리자가 강좌 정원을 **현재 확정 인원보다 작은 값**으로 축소하려는 것이 감지되면, 관리자 API는 해당 수정을 거부 **shall**한다. 기존 확정자를 강제 탈락시키 **shall not**한다.
-- **REQ-ADM-006** (Event-driven) — **When** 관리자가 강좌 정원을 확정 인원 이상의 값으로 수정하면, 관리자 API는 새 정원 값을 반영 **shall**한다. 정원 증설에 따른 대기자 승격은 이 SPEC의 범위가 **아니며** `SPEC-ENROLLMENT-001`이 확장 **shall**한다.
+- **REQ-ADM-005** (Event-driven) — **When** 관리자가 강좌 정원을 **현재 확정 인원보다 작은 값**으로 축소하려는 것이 감지되면, 관리자 API는 해당 수정을 거부하고 **409**를 반환 **shall**한다. 기존 확정자를 강제 탈락시키 **shall not**한다. 응답 코드는 **409 단일 값으로 확정**한다 — 이 코드베이스의 `GlobalExceptionHandler`가 도메인 규칙 위반(중복 이메일)을 이미 409로 매핑하고 있으므로 그 선례를 따른다. 400은 이 경우에 허용되지 **shall not**한다 (후속 `SPEC-FRONTEND-001` 소비자를 위한 단일 계약).
+- **REQ-ADM-006** (Event-driven) — **When** 관리자가 강좌 정원을 확정 인원 이상의 값으로 수정하면, 관리자 API는 새 정원 값을 반영 **shall**한다. 이 SPEC의 범위에는 대기명단도 승격 로직도 존재하지 않으므로, 정원이 증설되어도 확정 인원은 변경되지 않는다 (검증: AC-ADM-005).
+
+  > 정원 증설에 따른 대기자 승격 처리 자체는 이 SPEC의 범위 밖이다 (§D 범위 제외 참조). 다른 SPEC의 미래 동작에 대한 의무는 이 SPEC의 산출물로 검증할 수 없으므로 요구사항으로 두지 않는다.
 - **REQ-ADM-007** (Event-driven) — **When** 관리자가 강좌 마감을 요청하면, 관리자 API는 해당 강좌의 모집 상태를 `CLOSED`로 전이 **shall**한다.
 - **REQ-ADM-008** (Ubiquitous) — 관리자 API는 강좌 행의 물리적 삭제(hard delete)를 수행 **shall not**하며, 삭제 요청을 모집 마감 상태 전이로 처리 **shall**한다.
 - **REQ-ADM-009** (Event-driven) — **When** 존재하지 않는 강좌 식별자로 수정·마감·삭제 요청이 감지되면, 관리자 API는 404를 반환하고 어떤 강좌 행도 변경 **shall not**한다.
@@ -115,6 +120,7 @@ depends_on: [SPEC-AUTH-001]
 
 - 수강신청 접수 API, 큐 테이블, 큐 워커
 - 대기명단 등록·승격, 취소 처리
+- **정원 증설에 따른 대기자 승격 처리** — 이 SPEC은 정원 값 반영까지만 담당한다 (REQ-ADM-006). 승격 동작은 `SPEC-ENROLLMENT-001`이 다룰 예정이나, 그 SPEC의 동작에 대한 의무를 이 SPEC이 규정하지는 않는다 (교차 참조일 뿐 요구사항이 아니다)
 - `enrolled_count` 증감 로직
 
   위 항목은 전부 `SPEC-ENROLLMENT-001`이 소유한다. 이 SPEC에서 `enrolled_count`를 변경하는 코드를 작성하는 것은 INV-CRS-003 위반이다.
