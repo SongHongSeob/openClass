@@ -39,7 +39,7 @@ openclass-ap/
 
 ## 백엔드 패키지 구조
 
-`com.hongseob.openclass_ap` 하위 도메인별 패키지 분할이 SPEC-AUTH-001에서 확정되었다: `member`(인증/회원 도메인), `common`(횡단 관심사 — config/exception/response). 이후 SPEC(`course`, `enrollment`, `waitlist`, `admin` 등)도 동일한 패턴(도메인 패키지 + `common` 재사용)을 따를 것으로 예상된다.
+`com.hongseob.openclass_ap` 하위 도메인별 패키지 분할이 SPEC-AUTH-001에서 확정되었다: `member`(인증/회원 도메인), `common`(횡단 관심사 — config/exception/response). SPEC-COURSE-001의 `course`(강좌 도메인, 하위 `dto`/`admin` 패키지 포함)가 동일한 패턴(도메인 패키지 + `common` 재사용)을 그대로 따랐다. 이후 SPEC(`enrollment`, `waitlist` 등)도 동일한 패턴을 따를 것으로 예상된다.
 
 ## 프론트엔드
 
@@ -48,7 +48,8 @@ openclass-ap/
 ## SPEC 워크스페이스
 
 - **SPEC-AUTH-001** (완료) — 회원 가입·로그인 및 JWT 인증 기반. `.moai/specs/SPEC-AUTH-001/`
-- **SPEC-COURSE-001**, **SPEC-ENROLLMENT-001** — 계획 단계, 이후 SPEC에서 진행 예정
+- **SPEC-COURSE-001** (완료) — 강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리. `.moai/specs/SPEC-COURSE-001/`
+- **SPEC-ENROLLMENT-001** — 계획 단계, 이후 SPEC에서 진행 예정
 
 ## 참고
 

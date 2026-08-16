@@ -29,7 +29,7 @@
 - **인증 방식**: JWT 액세스 토큰 단일 방식(HMAC-SHA256, `io.jsonwebtoken:jjwt` 0.12.6). 리프레시 토큰 회전·서버 측 토큰 폐기 목록(denylist)은 v1 범위 제외 — 로그아웃은 클라이언트 측 토큰 폐기로만 수행.
 - **세션 전략**: STATELESS(`SecurityConfig`의 `SecurityFilterChain` Bean). `HttpSession` 미사용, `JwtAuthenticationFilter`가 `Authorization: Bearer` 헤더를 매 요청마다 검증.
 - **비밀번호 해싱**: BCrypt(`PasswordEncoderConfig`).
-- **인가 규칙**: `/api/auth/**` + `GET /api/courses` permitAll, `/api/admin/**` `ADMIN` 역할 필요, 그 외 인증 필요. 401(미인증)/403(권한부족)을 명시적 `AuthenticationEntryPoint`/`AccessDeniedHandler`로 구분.
+- **인가 규칙**: `/api/auth/**` + `GET /api/courses`, `/api/courses/*`(목록·상세) permitAll, `/api/admin/**` `ADMIN` 역할 필요, 그 외 인증 필요. 401(미인증)/403(권한부족)을 명시적 `AuthenticationEntryPoint`/`AccessDeniedHandler`로 구분.
 - **테스트 인프라**: Testcontainers(PostgreSQL)로 통합 테스트 실행 — `AbstractIntegrationTest` 공통 베이스.
 
 ## 데이터베이스

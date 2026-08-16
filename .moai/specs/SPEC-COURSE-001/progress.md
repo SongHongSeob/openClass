@@ -2,7 +2,7 @@
 id: SPEC-COURSE-001
 title: "강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리 — 진행 기록"
 version: "0.1.2"
-status: in-progress
+status: completed
 created: 2026-08-15
 updated: 2026-08-16
 author: manager-spec
@@ -310,4 +310,14 @@ $ grep -rn "enrolledCount|enrolled_count" src/main --include="*.java" | grep -v 
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+- `sync_status`: **audit-ready** — 문서 동기화 완료, `implemented → completed` 전이는 이 sync 커밋에 병합되어 수행됨(3-phase close, 별도 Mx 커밋 없음)
+- `sync_commit_sha`: pending-backfill-course-001-sync (커밋 직후 후속 커밋으로 백필 예정)
+- 동기화 산출물:
+  - `CHANGELOG.md` — `[Unreleased]` 섹션에 SPEC-COURSE-001 항목 추가(M1~M4 요약 + Verification + Known Limitations)
+  - `.moai/project/tech.md` — SecurityConfig 공개 경로 서술을 `/api/courses`, `/api/courses/*` 두 매처로 갱신(M2 D1 반영)
+  - `.moai/project/structure.md` — 백엔드 패키지 구조 절의 예측 문구를 확정 서술로 갱신, SPEC 워크스페이스 절에서 SPEC-COURSE-001을 "완료"로 갱신(SPEC-ENROLLMENT-001은 계획 단계로 유지, 미접촉)
+  - `.moai/project/product.md` — 검토 결과 변경 불필요(제품 수준 서술이 이미 강좌 카탈로그·관리 기능을 포괄하고 있음, SPEC-AUTH-001 sync 시점과 동일 판단)
+  - `.moai/specs/SPEC-COURSE-001/{spec,plan,acceptance,progress}.md` — frontmatter `status: in-progress → completed` 전이(4개 파일 동일 커밋)
+  - `.moai/reports/sync-report-SPEC-COURSE-001-20260816.md` — sync 보고서 신규 작성
+- MX 태그 검증(sync 하위 단계): `grep -rn "@MX:" src/main/java/com/hongseob/openclass_ap/course/` → 신규 발견 0건, 기존 코드에 위험 패턴(goroutine 등가물·복잡도 임계 초과)이나 fan_in≥3 익스포트 함수 없음 — 추가 태깅 불필요로 판단
+- 다음 단계: 없음(SPEC 완료). 후속 SPEC-ENROLLMENT-001 plan-phase 진입 시 이 SPEC(`completed`)이 `depends_on` 선행 조건을 충족함

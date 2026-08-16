@@ -2,7 +2,7 @@
 id: SPEC-COURSE-001
 title: "강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리 — 인수 기준"
 version: "0.1.2"
-status: in-progress
+status: completed
 created: 2026-08-15
 updated: 2026-08-16
 author: manager-spec
