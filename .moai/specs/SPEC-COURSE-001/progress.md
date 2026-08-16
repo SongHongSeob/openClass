@@ -311,7 +311,7 @@ $ grep -rn "enrolledCount|enrolled_count" src/main --include="*.java" | grep -v 
 ## §E.4 Sync-phase Audit-Ready Signal
 
 - `sync_status`: **audit-ready** — 문서 동기화 완료, `implemented → completed` 전이는 이 sync 커밋에 병합되어 수행됨(3-phase close, 별도 Mx 커밋 없음)
-- `sync_commit_sha`: pending-backfill-course-001-sync (커밋 직후 후속 커밋으로 백필 예정)
+- `sync_commit_sha`: 11557cf13781ea3c714b03901811a501f6c9562a
 - 동기화 산출물:
   - `CHANGELOG.md` — `[Unreleased]` 섹션에 SPEC-COURSE-001 항목 추가(M1~M4 요약 + Verification + Known Limitations)
   - `.moai/project/tech.md` — SecurityConfig 공개 경로 서술을 `/api/courses`, `/api/courses/*` 두 매처로 갱신(M2 D1 반영)
