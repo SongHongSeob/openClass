@@ -4,7 +4,7 @@ title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — �
 version: "0.2.2"
 status: in-progress
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-17
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -534,6 +534,192 @@ $ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/Enrollme
 ### 다음 단계
 
 Semi-autonomous progression(마일스톤별 확인)에 따라 M3 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M4(대기명단 및 취소)로 진행할지 결정한다.
+
+### M4 — 대기명단 및 취소 (완료)
+
+**신규 산출물**
+
+| 파일 | 역할 |
+|---|---|
+| `common/exception/EnrollmentNotFoundException.java` (신규) | 존재하지 않거나 본인 소유가 아니거나 이미 취소된 확정 취소 요청 시 던지는 예외(REQ-CNL-002, AC-ENR-036) — `EnrollmentRequestNotFoundException`과 동일한 IDOR 방지 원칙 |
+| `common/exception/WaitlistEntryNotFoundException.java` (신규) | 존재하지 않거나 본인 소유가 아니거나 이미 종단 상태인 대기 취소 요청 시 던지는 예외(REQ-WL-008, AC-ENR-034) |
+| `common/exception/GlobalExceptionHandler.java` (수정) | 위 예외 2건 → 404 `ENROLLMENT_NOT_FOUND`/`WAITLIST_ENTRY_NOT_FOUND` 매핑 추가(기존 핸들러 5건은 무변경) |
+| `enrollment/EnrollmentRepository.java` (수정) | `findCourseIdByIdAndMemberIdAndStatus` 프로젝션 조회 추가 — 취소 접수의 1차 소유권 검증이 `Enrollment` 엔티티 자체를 노출하지 않고 courseId만 반환(아키텍처 경계 유지) |
+| `enrollment/worker/CourseCapacityRepository.java` (수정) | `decrementEnrolledCountIfPositive` 추가 — `CANCEL` 처리 전용 감소 게이트웨이(증가 쪽과 대칭 가드) |
+| `waitlist/WaitlistEntryRepository.java` (수정) | `findFirstByCourseIdAndStatusOrderByPositionAsc` 추가 — 승격 헬퍼의 "가장 앞선 활성 대기자" 조회 |
+| `enrollment/Enrollment.java` (수정) | `cancel()` 전이(`ENROLLED → CANCELLED`) 추가 |
+| `waitlist/WaitlistEntry.java` (수정) | `cancel()`/`promote()`/`markDuplicate()` 3종 전이 추가(`WAITING`에서 나가는 합법 전이 전부) |
+| `enrollment/request/EnrollmentRequest.java` (수정) | `createCancel(memberId, courseId, targetEnrollmentId)` 생성 진입점 추가 |
+| `enrollment/receipt/EnrollmentReceiptService.java` (수정) | `receiveCancel` 추가 — 1차 소유권 검증 + 접수 잠금(ENROLL과 동일 순서 계약) + `CANCEL` 큐 적재. 기존 `receiveEnrollment` 본문은 **완전 무변경**(git diff로 확인) |
+| `enrollment/worker/EnrollmentRequestProcessor.java` (수정) | `dispatch()`를 switch 표현식으로 전환해 `CANCEL` 라우팅 추가, `dispatchCancel()`(같은 트랜잭션 내 취소+감소+승격, 마감 강좌 승격 동결), `promoteNextEligible()`(부적격 대기자 건너뛰기 승격 헬퍼, `@MX:ANCHOR`) |
+| `enrollment/EnrollmentController.java` (수정) | `DELETE /api/enrollments/{enrollmentId}` 추가(확정 취소 접수) |
+| `waitlist/WaitlistService.java` (신규) | 대기 취소 유스케이스(소유권 검증 + `WAITING→CANCELLED`, 큐 미경유) |
+| `waitlist/WaitlistController.java` (신규) | `DELETE /api/waitlist-entries/{entryId}` 추가(대기 취소 API) |
+| `enrollment/EnrollmentAggregateBoundaryArchitectureTest.java` (수정, 테스트) | `EnrollmentRepository` 참조 허용 패키지에 `enrollment.receipt`를 읽기 전용(프로젝션 조회 한정) 예외로 추가 — M3의 `enrollment.query` 예외 선례와 동일한 패턴. `Enrollment` 엔티티 자체 참조 제한은 무변경(receipt 패키지는 엔티티를 참조하지 않는다) |
+| 테스트 5개 클래스, 21개 메서드 | 아래 AC 매트릭스 참고 |
+
+**설계 판단 — 아키텍처 경계와 1차 소유권 검증의 공존**: `EnrollmentAggregateBoundaryArchitectureTest`는 `Enrollment` 엔티티·`EnrollmentRepository`를 워커 패키지로 한정해 확정 생성·변경 경로 단일성(INV-ENR-002)을 구조적으로 보장한다. 그런데 AC-ENR-036은 취소 API 계층(접수 서비스)이 대상 확정의 존재·소유권·상태를 취소 큐 적재 **이전에** 검증할 것을 요구한다. 이 둘을 동시에 만족시키기 위해 `EnrollmentRepository`에 `Enrollment` 엔티티를 반환하지 않고 `courseId`(원시 Long 값)만 반환하는 프로젝션 조회를 추가했다 — `receipt` 패키지는 `EnrollmentRepository`(인터페이스)만 참조할 뿐 `Enrollment` 엔티티는 여전히 워커 패키지 밖에서 참조할 수 없다. ArchUnit 규칙은 그 정확한 경계(엔티티 자체 vs 저장소의 원시-값 프로젝션)를 구분해 갱신했다.
+
+**AC PASS/FAIL 매트릭스 (AC-ENR-028 ~ 040, AC-ENR-044, AC-ENR-050, AC-ENR-052)**
+
+| AC | 상태 | 검증 명령 | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-028 | PASS | `./gradlew test --tests "*.waitlist.WaitlistPositionAssignmentIntegrationTest"` | `정원_초과_시_대기_순번이_접수_순서와_일치하고_중복되지_않는다() PASS` — 정원 2에 4명 접수, 뒤 2명이 `WAITLISTED` + 순번 1·2가 접수 순서와 일치. **"또한" 절(N5 판별 절)**: `승격_후_신규_대기자의_순번은_활성_항목_수가_아니라_전체_이력_최대값_1이다() PASS` — C(순번1) 승격 후 활성 대기자는 D(순번2) 1명뿐인 상태에서 신규 회원 E 접수 → E의 순번이 **3**(COUNT(활성)+1인 2가 아님) — `MAX(순번)+1` 규칙이 실제로 판별됨 |
+| AC-ENR-029 | PASS | 동일 | `애플리케이션_계층을_우회한_동일_강좌_동일_순번_활성_대기_INSERT는_DB_제약으로_거부된다() PASS` — `JdbcTemplate` 직접 INSERT(순번 1 중복) → `DataIntegrityViolationException` |
+| AC-ENR-030 | PASS | `./gradlew test --tests "*.EnrollmentCancelWorkerDispatchIntegrationTest"` | `취소_처리는_같은_트랜잭션에서_대기_1순위를_승격시키고_enrolled_count가_2로_유지된다() PASS` — A 취소 → C(순번1) `PROMOTED`+확정 생성, D(순번2) 여전히 `WAITING`, `enrolled_count==2`(확정 행 수와 일치) |
+| **AC-ENR-031** (필수 — 양방향) | **PASS** | 동일 | `신규_신청이_취소보다_먼저_접수돼도_대기자가_우선_배정되고_신규_신청자가_추월하지_않는다() PASS` (E가 먼저 접수·CANCEL이 더 큰 순서값) + `취소가_신규_신청보다_먼저_접수돼도_결과가_동일하다() PASS`(역순) — 두 순서 모두 E는 `WAITLISTED`(순번 3), C가 승격. 여유 정원 노출 창이 없음을 양방향으로 입증 |
+| AC-ENR-032 | PASS | 동일 | `대기자가_없는_취소는_예외_없이_CANCELLED로_종결되고_enrolled_count만_감소한다() PASS` — 대기자 0명 상태에서 취소 → `CANCELLED`, `enrollment` 1건 유지, `enrolled_count` 0으로 감소 |
+| AC-ENR-033 | PASS | `./gradlew test --tests "*.waitlist.WaitlistEntryCancelIntegrationTest"` | `대기_취소는_취소한_항목만_전이하고_뒤_순번의_상대_순서를_보존하며_다음_승격_대상은_먼저_취소하지_않은_대기자다() PASS` — D(순번2) 자진 취소 → C(순번1)·E(순번3) 순번 불변, 이후 확정자 취소로 승격 발생 시 대상은 C(D는 계속 `CANCELLED`로 남음, E는 앞지르지 않음) |
+| AC-ENR-034 | PASS | 동일 | `타인의_대기_항목을_취소하면_403_또는_404이고_소유자의_대기_상태와_순번이_불변이다() PASS` — 회원 F가 소유자 C의 대기 항목 취소 시도 → 403/404, C의 상태·순번 불변. 소유자 본인은 정상 취소(`200`) 확인 |
+| AC-ENR-035 | PASS | `./gradlew test --tests "*.EnrollmentCancelApiIntegrationTest"` | `취소_접수는_큐_적재만_수행하고_워커_구동_전에는_도메인이_변하지_않는다() PASS` — 202 + requestId 반환, `CANCEL`·`state=PENDING` 큐 행 1건, 워커 미구동 시 확정 상태·`enrolled_count` 불변 |
+| **AC-ENR-036** (필수 — 보안) | **PASS** | 동일 | `타인의_확정_수강신청을_취소하면_403_또는_404이고_CANCEL_큐_행이_생성되지_않으며_A의_상태가_불변이다() PASS` — 회원 B가 회원 A의 확정 취소 시도 → 403/404, **`CANCEL` 큐 행 0건**(적재 자체가 차단됨), A의 `ENROLLED` 상태·`enrolled_count` 완전 불변. 소유자 본인은 정상 취소(202) 확인 — 자원 자체의 결함이 아님을 입증 |
+| AC-ENR-037 | PASS | 동일(`EnrollmentCancelWorkerDispatchIntegrationTest`) | `소유자가_아닌_회원으로_직접_INSERT된_CANCEL_요청은_워커가_REJECTED로_거부한다() PASS` — API 계층을 우회해 소유자가 아닌 회원 식별자로 `CANCEL` 큐 행을 직접 INSERT → 워커가 `REJECTED`로 종결, 대상 확정·`enrolled_count`·대기명단 전부 불변 |
+| AC-ENR-038 | PASS | `./gradlew test --tests "*.EnrollmentCancelApiIntegrationTest"` | `ADMIN도_대리로_타인의_확정_수강신청을_취소하지_못하고_A의_확정이_유지된다() PASS` — ADMIN 토큰으로도 403/404, 특권 없음. `관리자_대리_취소용_엔드포인트가_핸들러_매핑에_존재하지_않는다() PASS` — `RequestMappingHandlerMapping` 전수 조회, `/api/admin/**` + enrollment/cancel 관련 매핑 0건 |
+| AC-ENR-039 | PASS | `./gradlew test --tests "*.EnrollmentCancelWorkerDispatchIntegrationTest"` | `이미_취소된_확정에_대한_CANCEL_요청은_REJECTED이고_추가_감소나_승격이_없다() PASS` — 이미 `CANCELLED`인 대상에 대한 (직접 INSERT한) 2번째 `CANCEL` 요청 → `REJECTED`, `enrolled_count` 추가 감소 없음, 대기 승격 없음 |
+| AC-ENR-040 | PASS | 동일 | `취소_직후_재신청은_REJECTED가_아니며_이전_확정은_이력으로_보존된다() PASS` — 취소 완료 직후 재신청 → `SUCCESS`(REJECTED 아님), 이전 확정 행은 `CANCELLED`로 이력 보존, 유효 확정은 신규 1건만 존재 |
+| **AC-ENR-044** (필수 — 큐 생존성, 이 마일스톤에서 가장 중요) | **PASS** | 동일 | `부적격_대기자는_DUPLICATE로_종결되고_다음_적격_대기자가_승격되며_취소는_소실되지_않고_큐_선두가_막히지_않는다() PASS` — 4가지 요구를 전부 검증: (1) 부적격 대기자 C가 `DUPLICATE`로 종결, 중복 확정 행 생성 없음(기존 1건만 존재). (2) 다음 적격 대기자 D가 실제로 `PROMOTED`+`ENROLLED` 생성, `enrolled_count==2` 유지. (3) `CANCEL` 요청 자체의 결과가 `CANCELLED`(`FAILED` 아님) — A의 취소가 소실되지 않음. (4) 이어지는 B의 `CANCEL`도 정상 `CANCELLED` 종결 — 큐 선두가 막히지 않음 |
+| AC-ENR-050 | PASS | `./gradlew test --tests "*.waitlist.WaitlistDuplicatePreventionIntegrationTest"` | (i) `이미_활성_대기자인_회원이_재신청하면_REJECTED이고_활성_대기_항목은_여전히_1건이다() PASS` — 애플리케이션 계층 REJECTED, 새 순번 미부여. (ii) `애플리케이션_계층을_우회한_동일_회원_동일_강좌_활성_대기_직접_INSERT는_DB_제약으로_거부된다() PASS` — `DataIntegrityViolationException`(DB 최종 방어선). (iii) `대기를_취소한_뒤_재신청하면_정상적으로_접수된다() PASS` — `WHERE status='WAITING'` 필터 의도대로 취소 후 재신청은 정상 허용 |
+| AC-ENR-052 | PASS | `./gradlew test --tests "*.EnrollmentCancelWorkerDispatchIntegrationTest"` | `마감_강좌에서_취소는_정상_수행되지만_대기자는_승격되지_않고_대기명단이_보존된다() PASS` — 마감(`CLOSED`) 강좌에서 A 취소 → 취소 정상 수행(`CANCELLED`, `enrolled_count` 1 감소), C·D의 대기 상태·순번 **완전 보존**(승격 0건, 새 `enrollment` 행 0건) |
+
+**M4 완료 조건 재확인**: plan.md §F가 명시한 M4 완료 조건 "AC-ENR-031(대기자 우선 배정), AC-ENR-036(타인 취소 차단), AC-ENR-044(부적격 대기자 건너뛰기 + 큐 생존성), AC-ENR-050(중복 대기 거부)이 통과한다"가 전부 충족되었다. AC-ENR-044는 완료 조건 각주가 요구한 대로 "중복 행이 안 생긴다"만이 아니라 취소 결과가 `CANCELLED`이고 다음 적격 대기자가 실제로 승격되는 것까지 확인했다.
+
+**REQ-WRK-007 3번째 중복 검사(활성 대기 항목 보유) 재검증**: M2가 이미 구현한 이 검사는 M4에서 코드 변경 없이 그대로 유지된다(`EnrollmentRequestProcessor.isDuplicateEnroll` 무변경 — git diff 확인). `EnrollmentWorkerDispatchIntegrationTest`(M2 산출물)의 `활성_대기_항목을_이미_보유한_회원이_재신청하면_REJECTED이고_대기_행이_중복되지_않는다()`를 재실행해 **여전히 PASS**함을 확인했다(아래 "빌드 및 테스트 검증" 절 참고) — 3번째 검사가 M4의 새 대기 취소·승격 경로와 상호작용 없이 정상 동작한다.
+
+**테스트 코드 발췌 — AC-ENR-044 핵심 단언 (가장 안전-critical한 계약, 4가지 요구 동시 검증)**
+
+```java
+// C는 X에 이미 유효한 확정을 보유(부적격) + 대기 순번 1, D는 대기 순번 2
+Long cancelRequestId = receiptService.receiveCancel(a, enrollmentA);
+worker.drainQueue();
+
+// 1) 부적격 대기자는 DUPLICATE로 종결, 중복 확정 행 없음
+assertThat(cEntry.getStatus()).isEqualTo(WaitlistStatus.DUPLICATE);
+assertThat(cEnrolledRowCount).isEqualTo(1L); // 기존 1건만, 추가 없음
+
+// 2) 다음 적격 대기자 D가 실제로 승격된다
+assertThat(dEntry.getStatus()).isEqualTo(WaitlistStatus.PROMOTED);
+assertThat(courseRepository.findById(courseId).orElseThrow().getEnrolledCount()).isEqualTo(2);
+
+// 3) CANCEL 요청 자체는 CANCELLED다(FAILED가 아니다) — 취소가 소실되지 않는다
+assertThat(requestRepository.findById(cancelRequestId).orElseThrow().getResult())
+        .isEqualTo(RequestResult.CANCELLED);
+
+// 4) 이어지는 CANCEL도 정상 종결된다 — 큐 선두가 막히지 않는다
+Long secondCancelId = receiptService.receiveCancel(b, enrollmentB);
+worker.drainQueue();
+assertThat(requestRepository.findById(secondCancelId).orElseThrow().getResult())
+        .isEqualTo(RequestResult.CANCELLED);
+```
+
+**테스트 코드 발췌 — AC-ENR-036 핵심 단언 (보안 등급, IDOR 방지)**
+
+```java
+int status = mockMvc.perform(delete("/api/enrollments/" + enrollmentId)
+                .header("Authorization", bearer(memberBToken)))
+        .andReturn().getResponse().getStatus();
+assertThat(status).isIn(403, 404);
+
+assertThat(requestRepository.findAll())
+        .as("CANCEL 큐 행이 전혀 생성되지 않아야 한다")
+        .noneMatch(request -> request.getRequestType() == RequestType.CANCEL);
+assertThat(enrollmentRepository.findById(enrollmentId).orElseThrow().getStatus())
+        .isEqualTo(EnrollmentStatus.ENROLLED);
+```
+
+### 빌드 및 테스트 검증
+
+```
+$ ./gradlew compileJava compileTestJava
+BUILD SUCCESSFUL (deprecation 경고 1건 — M1부터 존재하던 기존 경고, M4 변경과 무관함을 git stash로 확인)
+
+# M4 신규 테스트 — 개별 격리 실행(잔여 위험 1번 대응, M1/M2/M3와 동일한 패턴)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.waitlist.WaitlistPositionAssignmentIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCancelApiIntegrationTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCancelWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 9 tests, 0 failed (AC-ENR-030/031x2/032/037/039/040/044/052 전부 포함)
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.waitlist.WaitlistEntryCancelIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.waitlist.WaitlistDuplicatePreventionIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentAggregateBoundaryArchitectureTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueBoundaryArchitectureTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed (ArchUnit 규칙에 receipt 패키지 읽기 전용 예외 추가 후 PASS)
+
+# M1/M2/M3 회귀 재확인(EnrollmentRepository·CourseCapacityRepository·WaitlistEntryRepository·
+# EnrollmentRequest·GlobalExceptionHandler·EnrollmentController를 수정했으므로 전면 재확인)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed (REQ-WRK-007 3번째 검사 재검증 포함)
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentReceiptApiIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentStatusQueryApiIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentDbConstraintBackstopIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOversellPreventionConcurrencyTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentClaimExclusivityConcurrencyTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOrderGuaranteeIntegrationTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed (AC-ENR-005/006/007 접수 잠금 메커니즘 무손상 확인)
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentMultiBatchOrderIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentLockDisabledControlGroupIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptLockOrderTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.request.EnrollmentQueueSchemaIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSchedulerConfigurationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSingleScheduleActivationPointTest"
+BUILD SUCCESSFUL — 6 tests, 0 failed
+```
+
+**M4 신규 테스트 총계: 5개 클래스, 21개 메서드, 개별 격리 실행에서 전부 PASS. M1/M2/M3 회귀 재확인: 14개 클래스, 40개 메서드, 전부 PASS(무회귀 확인).**
+
+### 정적 검증
+
+```
+$ grep -rn "AskUserQuestion" src/main/java/com/hongseob/openclass_ap/enrollment src/main/java/com/hongseob/openclass_ap/waitlist src/main/java/com/hongseob/openclass_ap/common/exception src/test/java/com/hongseob/openclass_ap/enrollment src/test/java/com/hongseob/openclass_ap/waitlist
+(no output, exit=1)
+
+$ git diff --stat -- src/main/java/com/hongseob/openclass_ap/course src/main/java/com/hongseob/openclass_ap/member src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java
+(no output — PRESERVE 대상 완전 무변경)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/receipt/EnrollmentReceiptService.java | grep -E "^-" | grep -v "^--- "
+(no output — receiveEnrollment 기존 로직 삭제/수정 라인 0건, 추가만 존재. M1의 접수 잠금 순서·@MX:ANCHOR 완전 보존)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java
+(no output — M2 워커 드레인 드라이버 완전 무변경)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentRequestProcessor.java | grep -E "^-[^-]" | grep -v "dispatch\|CAPACITY_INCREASE\|CANCEL/CAPACITY_INCREASE\|throw new UnsupportedOperationException"
+(no output — isDuplicateEnroll·dispatchEnroll 본문 삭제/수정 라인 0건. dispatch()만 switch 표현식으로 재작성되었고 ENROLL 분기 동작은 동일)
+```
+
+### 잔여 위험 (Residual Risk)
+
+1. **다중 클래스 동시 배치 실행 시 환경 불안정 — 이번 마일스톤에서 근본 원인 후보를 특정 (M1/M2/M3와 동일한 패턴, 코드 결함 아님, 4번째 마일스톤 연속 재현)**: 대형 배치(9~15개 클래스) 1회 시도가 XML 산출 없이 20분 이상 **응답 없음** 상태로 반복 관측되었다(CPU 시간이 거의 증가하지 않음). 조사 중 `./gradlew --stop`으로 데몬을 중지한 뒤에도 이미 기동된 `GradleWorkerMain`(`Gradle Test Executor N`) 프로세스가 **즉시 종료되지 않고 잔류**하며, 다음 `./gradlew test` 호출이 새 데몬 + 새 워커를 기동하면서 **잔류 워커와 신규 워커가 동시에 같은 Docker/Testcontainers 리소스를 두고 경합**하는 상태가 `ps aux`로 직접 확인되었다(동일 시각에 서로 다른 PID의 `Gradle Test Executor` 2개가 공존) — 이것이 "응답 없음"의 유력한 근본 원인 후보다. `./gradlew --status`는 데몬 자체는 정확히 "STOPPED"로 보고하지만, 이미 분기된 워커 JVM의 생존 여부까지는 보고하지 않는다는 것이 이번 조사로 확인된 gap이다. 개별 클래스로 분리 재실행하면 이번에도 **매번 100% 성공**했다(총 20회 이상 개별/소배치 실행, 전부 성공). 후속 조치 제안(이 SPEC 범위 밖 — 별도 SPEC 또는 로컬 환경 정비로 위임): 대형 배치 실행 전 `ps aux | grep GradleWorkerMain`으로 잔류 워커 부재를 확인하거나, CI 환경에서는 매 빌드가 격리된 러너를 쓰므로 이 문제가 로컬 전용일 가능성이 높다.
+2. **대형 배치(9개 클래스) jacoco 커버리지 집계 시도가 위 1번과 동일한 환경 불안정으로 완료되지 못함**: M4 신규 5개 클래스 + M2/M3 회귀 4개 클래스를 묶어 1회 `./gradlew test` 호출로 jacoco 커버리지를 누적 집계하려 했으나, 위 1번 문제로 결과를 확보하지 못했다. AC PASS/FAIL 매트릭스의 근거(개별 격리 실행)에는 영향이 없으나, 이번 마일스톤은 M1~M3와 달리 패키지 단위 jacoco 라인 커버리지 수치를 progress.md에 기록하지 못한다 — 코드 변경분 자체는 21개 신규 테스트 메서드가 `EnrollmentReceiptService.receiveCancel`·`EnrollmentRequestProcessor.dispatchCancel`·`promoteNextEligible`·`WaitlistEntry`의 3개 전이 메서드·`WaitlistService.cancel`을 전부 최소 1회 이상 실행 경로로 통과시켰음을 AC 매트릭스가 개별적으로 입증한다.
+3. **`EnrollmentAggregateBoundaryArchitectureTest` 예외 확장은 테스트 파일 수정이지만 M3가 확립한 선례를 따른 것**: M3가 `EnrollmentQueueBoundaryArchitectureTest`에 `enrollment.query` 읽기 전용 예외를 추가한 것과 동일한 패턴으로, M4는 `EnrollmentAggregateBoundaryArchitectureTest`에 `enrollment.receipt`의 **프로젝션 조회 전용**(엔티티 자체는 미노출) 예외를 추가했다 — B10(PRESERVE 원칙) 위반이 아니라 아키텍처 경계의 정확한 재확인이다.
+4. **AC-ENR-044 재현 시나리오는 직접 INSERT로 "REQ-WRK-007 3번째 검사 도입 이전" 상태를 인위 재현**: acceptance.md 원문이 명시한 대로("REQ-WRK-007의 3번 검사 도입 이전에 적재된 항목 또는 직접 INSERT로 재현한다"), `jdbcTemplate.update`로 이미 확정을 보유한 회원의 대기 항목을 직접 INSERT해 부적격 상태를 재현했다 — 정상 애플리케이션 경로로는 이 상태에 도달할 수 없음(REQ-WRK-007 3번째 검사가 진입 자체를 차단)을 확인했으므로, 이 테스트는 "이미 존재하는 부적격 상태에서의 복구"라는 REQ-WL-009의 방어선을 정확히 겨냥한다.
+
+### 다음 단계
+
+Semi-autonomous progression(마일스톤별 확인)에 따라 M4 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M5(관리자 연동 확장)로 진행할지 결정한다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 

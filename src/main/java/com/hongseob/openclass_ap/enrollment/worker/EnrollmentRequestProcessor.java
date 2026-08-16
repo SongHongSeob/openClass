@@ -27,12 +27,18 @@ import org.springframework.transaction.annotation.Transactional;
  * 트랜잭션에서 {@code FAILED}만 기록하는 {@link #recordFailure})를
  * 구현한다.</p>
  *
- * <p>이 클래스가 처리하는 {@code CANCEL}/{@code CAPACITY_INCREASE} 요청은
- * 아직 프로덕션 경로로 생성되지 않으므로({@link
+ * <p><b>M4 범위</b>(plan.md §F M4, REQ-WL-001~011·REQ-CNL-001~005): {@code
+ * CANCEL} 요청의 전체 디스패치(2차 소유권 재검증 · 같은 트랜잭션 내 감소+승격
+ * · 마감 강좌 승격 동결)와 승격 헬퍼 {@link #promoteNextEligible}(부적격
+ * 대기자 건너뛰기, REQ-WL-009)을 구현한다.</p>
+ *
+ * <p>{@code CAPACITY_INCREASE} 요청은 아직 프로덕션 경로로 생성되지
+ * 않으므로({@link
  * com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptService}가
- * {@code ENROLL}만 적재) {@link #dispatch}가 그 종류를 만나면 방어적으로
- * 예외를 던진다 — 조용히 잘못된 결과를 기록하는 것보다 낫다. 각각의 디스패치는
- * M4({@code CANCEL})·M5({@code CAPACITY_INCREASE})가 추가한다.</p>
+ * {@code ENROLL}·{@code CANCEL}만 적재) {@link #dispatch}가 그 종류를 만나면
+ * 방어적으로 예외를 던진다 — 조용히 잘못된 결과를 기록하는 것보다 낫다. 그
+ * 디스패치는 M5가 추가하며, {@link #promoteNextEligible}을 그대로 재사용할
+ * 예정이다(design.md §4.3).</p>
  */
 @Service
 public class EnrollmentRequestProcessor {
@@ -103,15 +109,16 @@ public class EnrollmentRequestProcessor {
     }
 
     private RequestResult dispatch(EnrollmentRequest request) {
-        if (request.getRequestType() != RequestType.ENROLL) {
-            // 이 요청 종류를 큐에 적재하는 프로덕션 경로는 아직 없다(CANCEL은
-            // M4, CAPACITY_INCREASE는 M5 범위) — 여기 도달하면 스키마를
-            // 우회한 직접 INSERT이거나 아직 확장되지 않은 상태에서 호출된
-            // 것이다.
-            throw new UnsupportedOperationException(
-                    "CANCEL/CAPACITY_INCREASE 디스패치는 이 마일스톤 범위 밖이다: " + request.getRequestType());
-        }
-        return dispatchEnroll(request);
+        return switch (request.getRequestType()) {
+            case ENROLL -> dispatchEnroll(request);
+            case CANCEL -> dispatchCancel(request);
+            case CAPACITY_INCREASE ->
+                // 이 요청 종류를 큐에 적재하는 프로덕션 경로는 아직 없다(M5
+                // 범위) — 여기 도달하면 스키마를 우회한 직접 INSERT이거나
+                // 아직 확장되지 않은 상태에서 호출된 것이다.
+                throw new UnsupportedOperationException(
+                        "CAPACITY_INCREASE 디스패치는 이 마일스톤 범위 밖이다: " + request.getRequestType());
+        };
     }
 
     /**
@@ -164,5 +171,82 @@ public class EnrollmentRequestProcessor {
                         memberId, courseId, RequestState.PENDING, request.getId())
                 || waitlistEntryRepository.existsByMemberIdAndCourseIdAndStatus(
                         memberId, courseId, WaitlistStatus.WAITING);
+    }
+
+    /**
+     * {@code CANCEL} 디스패치 — 이 SPEC에서 가장 중요한 설계 판단(design.md
+     * §4.3). 취소·{@code enrolled_count} 감소·승격을 {@link #processOne}이
+     * 여는 트랜잭션 1개 안에서 연속 수행한다 — 감소가 커밋되는 시점에는
+     * 승격도 이미 커밋되어 있으므로 여유 정원이 외부에 노출되는 시간 창이
+     * 존재하지 않는다(REQ-WL-004, AC-ENR-031). 대상이 없거나 이미 취소됐거나
+     * 소유자가 아니면(2차 소유권 재검증, REQ-CNL-003 — API 계층 우회 대비
+     * 방어선, AC-ENR-037) 어떤 도메인 변경도 없이 {@code REJECTED}로 종결한다.
+     */
+    private RequestResult dispatchCancel(EnrollmentRequest request) {
+        Enrollment target = enrollmentRepository.findById(request.getTargetEnrollmentId()).orElse(null);
+        if (target == null || target.getStatus() != EnrollmentStatus.ENROLLED) {
+            return RequestResult.REJECTED;
+        }
+        if (!target.getMemberId().equals(request.getMemberId())) {
+            return RequestResult.REJECTED;
+        }
+
+        target.cancel();
+        Long courseId = request.getCourseId();
+        courseCapacityRepository.decrementEnrolledCountIfPositive(courseId);
+
+        Course course = courseCapacityRepository.findById(courseId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "워커 처리 시점에 강좌를 찾을 수 없습니다: " + courseId));
+        if (course.getStatus() == CourseStatus.CLOSED) {
+            // 마감 강좌에서는 취소만 수행하고 승격은 동결한다(REQ-WL-011,
+            // spec.md §A.5, AC-ENR-052). 대기명단 순번은 그대로 보존된다.
+            return RequestResult.CANCELLED;
+        }
+
+        promoteNextEligible(courseId);
+        return RequestResult.CANCELLED;
+    }
+
+    /**
+     * 승격 헬퍼 — design.md §4.3 {@code promoteNextEligible}. 가장 앞선 활성
+     * 대기자의 승격 적격 여부를 확인하고, 부적격(이미 이 강좌에 유효한 확정
+     * 보유)이면 {@code DUPLICATE}로 종결한 뒤 다음 대기자로 건너뛴다 —
+     * 예외를 던져 {@link #processOne} 트랜잭션 전체를 롤백시키지 않는다.
+     *
+     * <p>{@code CANCEL} 처리는 이 메서드를 1회만 호출한다(승격 최대 1명).
+     * {@code CAPACITY_INCREASE}(M5)는 정원이 찰 때까지 반복 호출해 같은
+     * 헬퍼를 재사용할 예정이다.</p>
+     */
+    // @MX:ANCHOR: [AUTO] 부적격 대기자는 예외를 던지지 않고 건너뛴다 — 승격 INSERT를 적격성 확인 뒤에만 수행한다
+    // @MX:REASON: REQ-WL-009(2차 감사 E1) — 검사 없이 곧장 INSERT하면 (member_id, course_id) WHERE status='ENROLLED' 부분 유니크 인덱스 위반으로 processOne 트랜잭션 전체가 롤백된다. 그 결과 CANCEL이 소실되고 여유 정원이 영원히 재배정되지 않으며, 부적격 항목이 대기 선두에 남아 이후 모든 CANCEL을 같은 방식으로 실패시킨다 — 큐 선두 영구 정지(생존성 결함). AC-ENR-044가 이 계약을 정확히 검증한다.
+    private boolean promoteNextEligible(Long courseId) {
+        while (true) {
+            WaitlistEntry front = waitlistEntryRepository
+                    .findFirstByCourseIdAndStatusOrderByPositionAsc(courseId, WaitlistStatus.WAITING)
+                    .orElse(null);
+            if (front == null) {
+                return false;
+            }
+
+            boolean ineligible = enrollmentRepository.existsByMemberIdAndCourseIdAndStatus(
+                    front.getMemberId(), courseId, EnrollmentStatus.ENROLLED);
+            if (ineligible) {
+                front.markDuplicate();
+                continue;
+            }
+
+            int updated = courseCapacityRepository.incrementEnrolledCountIfAvailable(courseId);
+            if (updated == 0) {
+                // 정원이 이미 가득 찬 경우 — 승격하지 않는다(REQ-WL-006, 3중
+                // 방어선 2번째 층). 단일 워커 순차 처리 전제에서는 CANCEL이
+                // 직전에 1명분을 비웠으므로 이 경로는 이론상 도달하지 않지만
+                // 방어적으로 유지한다(design.md §2).
+                return false;
+            }
+            enrollmentRepository.save(Enrollment.create(front.getMemberId(), courseId));
+            front.promote();
+            return true;
+        }
     }
 }

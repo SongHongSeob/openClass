@@ -33,4 +33,16 @@ public interface CourseCapacityRepository extends JpaRepository<Course, Long> {
     @Query("UPDATE Course c SET c.enrolledCount = c.enrolledCount + 1 "
             + "WHERE c.id = :courseId AND c.enrolledCount < c.capacity")
     int incrementEnrolledCountIfAvailable(@Param("courseId") Long courseId);
+
+    /**
+     * {@code CANCEL} 처리 시 감소 전용(M4, REQ-WL-003). {@code
+     * enrolled_count > 0} 가드는 증가 쪽과 대칭인 방어적 하한선이다 — 단일
+     * 워커 인스턴스 전제(REQ-WRK-012)에서 이미 0인 강좌를 취소 대상으로
+     * 다시 처리하는 경로는 없지만(취소 대상은 항상 {@code ENROLLED} 확정
+     * 1건에 대응하므로), DB 최종 방어선(REQ-WRK-014)과 일관되게 유지한다.
+     */
+    @Modifying
+    @Query("UPDATE Course c SET c.enrolledCount = c.enrolledCount - 1 "
+            + "WHERE c.id = :courseId AND c.enrolledCount > 0")
+    int decrementEnrolledCountIfPositive(@Param("courseId") Long courseId);
 }

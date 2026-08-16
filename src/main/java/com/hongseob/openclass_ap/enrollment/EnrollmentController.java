@@ -8,6 +8,7 @@ import com.hongseob.openclass_ap.member.MemberRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,13 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
  * /api/enrollment-requests/{requestId}}(M3) — 두 경로의 접두사가 다르므로 클래스
  * 수준 {@code @RequestMapping}을 두지 않고 메서드마다 전체 경로를 명시한다.
  * 인증은 이 컨트롤러가 아니라 {@code SecurityConfig}의 {@code
- * anyRequest().authenticated()} 기본 규칙이 처리한다 — 두 경로 모두 어떤
- * {@code permitAll} 매처에도 걸리지 않는다(REQ-QUE-006, REQ-STS-001;
- * {@code SecurityConfig.java}는 이 SPEC의 PRESERVE 대상이라 새 인가 규칙을
- * 추가하지 않는다).
- *
- * <p>취소({@code DELETE /api/enrollments/{enrollmentId}})는 M4가 추가한다
- * (design.md §8).</p>
+ * anyRequest().authenticated()} 기본 규칙이 처리한다 — 세 경로 모두 어떤
+ * {@code permitAll} 매처에도 걸리지 않는다(REQ-QUE-006, REQ-STS-001,
+ * REQ-CNL-001; {@code SecurityConfig.java}는 이 SPEC의 PRESERVE 대상이라 새
+ * 인가 규칙을 추가하지 않는다 — 관리자 대리 취소용 규칙도 추가하지 않는다,
+ * REQ-CNL-004).</p>
  */
 @RestController
 public class EnrollmentController {
@@ -59,6 +58,22 @@ public class EnrollmentController {
             @PathVariable Long requestId, Authentication authentication) {
         Long memberId = resolveMemberId(authentication);
         return ResponseEntity.ok(statusQueryService.getStatus(requestId, memberId));
+    }
+
+    /**
+     * 확정 취소 접수 API(M4, REQ-CNL-001/002, design.md §8). 큐 적재만
+     * 수행한다 — 확정 취소·{@code enrolled_count} 변경은 절대 하지 않는다
+     * (REQ-WRK-002). 1차 소유권 검증(AC-ENR-036, 감사 D12)은 {@link
+     * EnrollmentReceiptService#receiveCancel}이 수행하며, 소유자가 아니거나
+     * 존재하지 않으면 큐 행을 적재하지 않고 404를 반환한다(관리자 대리
+     * 취소용 별도 경로는 존재하지 않는다 — REQ-CNL-004, AC-ENR-038).
+     */
+    @DeleteMapping("/api/enrollments/{enrollmentId}")
+    public ResponseEntity<EnrollmentReceiptResponse> cancel(
+            @PathVariable Long enrollmentId, Authentication authentication) {
+        Long memberId = resolveMemberId(authentication);
+        Long requestId = receiptService.receiveCancel(memberId, enrollmentId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new EnrollmentReceiptResponse(requestId));
     }
 
     /**

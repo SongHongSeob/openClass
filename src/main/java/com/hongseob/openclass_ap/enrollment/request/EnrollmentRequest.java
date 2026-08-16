@@ -103,6 +103,16 @@ public class EnrollmentRequest {
     }
 
     /**
+     * 취소 API가 사용하는 생성 진입점(REQ-CNL-001, M4). {@code
+     * targetEnrollmentId}가 취소 대상 확정 레코드를 가리킨다 — {@code
+     * receipt.EnrollmentReceiptService#receiveCancel}이 1차 소유권 검증을
+     * 마친 뒤에만 이 팩토리를 호출한다.
+     */
+    public static EnrollmentRequest createCancel(Long memberId, Long courseId, Long targetEnrollmentId) {
+        return new EnrollmentRequest(memberId, courseId, targetEnrollmentId, RequestType.CANCEL);
+    }
+
+    /**
      * 워커가 처리를 종결하며 호출한다(REQ-WRK-010, spec.md §A.4.1 합법 전이
      * {@code PENDING → DONE}, 1회만 · INV-ENR-006). 이미 {@code DONE}인 요청에
      * 다시 호출하는 프로덕션 경로는 존재하지 않는다 — M1 스텁 워커

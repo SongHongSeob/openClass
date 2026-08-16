@@ -62,4 +62,25 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponse.of("ENROLLMENT_REQUEST_NOT_FOUND", ex.getMessage()));
     }
+
+    /**
+     * 존재하지 않거나 본인 소유가 아니거나 이미 취소된 확정 수강신청 취소
+     * 요청을 404로 거부한다(M4, REQ-CNL-002, AC-ENR-036 — 감사 D12 IDOR
+     * 방지).
+     */
+    @ExceptionHandler(EnrollmentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleEnrollmentNotFound(EnrollmentNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("ENROLLMENT_NOT_FOUND", ex.getMessage()));
+    }
+
+    /**
+     * 존재하지 않거나 본인 소유가 아니거나 이미 종단 상태인 대기명단 항목
+     * 취소 요청을 404로 거부한다(M4, REQ-WL-008, AC-ENR-034).
+     */
+    @ExceptionHandler(WaitlistEntryNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleWaitlistEntryNotFound(WaitlistEntryNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("WAITLIST_ENTRY_NOT_FOUND", ex.getMessage()));
+    }
 }

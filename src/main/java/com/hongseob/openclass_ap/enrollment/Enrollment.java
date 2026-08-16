@@ -68,4 +68,16 @@ public class Enrollment {
     public static Enrollment create(Long memberId, Long courseId) {
         return new Enrollment(memberId, courseId);
     }
+
+    /**
+     * 확정 수강신청을 취소 상태로 전이한다(REQ-WL-003, spec.md §A.4.2 합법
+     * 전이 {@code ENROLLED → CANCELLED}, 1회만). 워커의 {@code CANCEL} 처리
+     * 경로에서만 호출된다 — INV-ENR-002가 확정 생성 경로를 워커 1개소로
+     * 한정하는 것과 동일한 원칙으로, 이 전이도 워커 1개소에서만 일어난다
+     * (plan.md §F M4).
+     */
+    public void cancel() {
+        this.status = EnrollmentStatus.CANCELLED;
+        this.cancelledAt = LocalDateTime.now();
+    }
 }

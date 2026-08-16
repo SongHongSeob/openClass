@@ -1,7 +1,10 @@
 package com.hongseob.openclass_ap.enrollment.receipt;
 
 import com.hongseob.openclass_ap.common.exception.CourseNotFoundException;
+import com.hongseob.openclass_ap.common.exception.EnrollmentNotFoundException;
 import com.hongseob.openclass_ap.course.CourseRepository;
+import com.hongseob.openclass_ap.enrollment.EnrollmentRepository;
+import com.hongseob.openclass_ap.enrollment.EnrollmentStatus;
 import com.hongseob.openclass_ap.enrollment.request.EnrollmentRequest;
 import com.hongseob.openclass_ap.enrollment.request.EnrollmentRequestRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -37,14 +40,16 @@ public class EnrollmentReceiptService {
 
     private final CourseRepository courseRepository;
     private final EnrollmentRequestRepository requestRepository;
+    private final EnrollmentRepository enrollmentRepository;
     private final JdbcTemplate jdbcTemplate;
     private final EnrollmentLockProperties lockProperties;
 
     public EnrollmentReceiptService(CourseRepository courseRepository,
-            EnrollmentRequestRepository requestRepository, JdbcTemplate jdbcTemplate,
-            EnrollmentLockProperties lockProperties) {
+            EnrollmentRequestRepository requestRepository, EnrollmentRepository enrollmentRepository,
+            JdbcTemplate jdbcTemplate, EnrollmentLockProperties lockProperties) {
         this.courseRepository = courseRepository;
         this.requestRepository = requestRepository;
+        this.enrollmentRepository = enrollmentRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.lockProperties = lockProperties;
     }
@@ -79,6 +84,40 @@ public class EnrollmentReceiptService {
         // @MX:ANCHOR: [AUTO] 접수 잠금 획득이 큐 행 INSERT(순서값 할당)보다 반드시 선행해야 한다
         // @MX:REASON: spec.md §A.2 / design.md §3 — 이 순서가 뒤바뀌면 "순서값 순서 = 커밋 순서" 정합성 논증이 성립하지 않고 선착순 보장이 조용히 사라진다(감사 D1). AC-ENR-005(구조)·AC-ENR-006(핵심 시나리오)·AC-ENR-007(대조군)이 이 순서를 기계적으로 검증한다.
         EnrollmentRequest request = EnrollmentRequest.createEnroll(memberId, courseId);
+        EnrollmentRequest saved = requestRepository.save(request);
+        return saved.getId();
+    }
+
+    /**
+     * 확정 수강신청 취소를 접수한다(M4, REQ-CNL-001). 취소·{@code
+     * enrolled_count} 감소·승격은 절대 하지 않는다(REQ-WRK-002, plan.md §G
+     * 안티패턴) — 이 메서드는 큐 적재만 수행한다.
+     *
+     * <p>1차 소유권 검증(REQ-CNL-002, 감사 D12)을 이 메서드가 수행한다 —
+     * 존재하지 않거나 본인 소유가 아니거나 이미 취소된 대상이면 {@link
+     * EnrollmentNotFoundException}을 던지고 {@code CANCEL} 큐 행을 적재하지
+     * 않는다(AC-ENR-036 "큐 행이 생성되지 않는다"). 이 검증은 {@link
+     * EnrollmentRepository#findCourseIdByIdAndMemberIdAndStatus} 프로젝션
+     * 조회로 수행한다 — 아키텍처 경계 규칙(AC-ENR-009)이 워커 패키지로
+     * 한정한 {@code Enrollment} 엔티티 자체는 이 패키지에서 참조할 수
+     * 없으므로, courseId(접수 잠금 키)만 원시 값으로 돌려받는다.</p>
+     *
+     * @return 생성된 {@code CANCEL} 큐 행의 순서값(요청 식별자)
+     */
+    @Transactional
+    public Long receiveCancel(Long memberId, Long enrollmentId) {
+        Long courseId = enrollmentRepository
+                .findCourseIdByIdAndMemberIdAndStatus(enrollmentId, memberId, EnrollmentStatus.ENROLLED)
+                .orElseThrow(() -> new EnrollmentNotFoundException(enrollmentId));
+
+        if (lockProperties.lockEnabled()) {
+            jdbcTemplate.queryForObject("SELECT pg_advisory_xact_lock(?, ?)", Object.class,
+                    ENROLLMENT_LOCK_CLASSID, courseId.intValue());
+        }
+
+        // @MX:ANCHOR: [AUTO] 접수 잠금 획득이 CANCEL 큐 행 INSERT(순서값 할당)보다 반드시 선행해야 한다
+        // @MX:REASON: REQ-QUE-003(2회차 감사 후속 N2) — 접수 잠금은 ENROLL뿐 아니라 CANCEL·CAPACITY_INCREASE 적재 경로 전부에 동일하게 적용된다. 이 순서가 뒤바뀌면 AC-ENR-005가 검증하는 "잠금 없이 큐 행을 INSERT하는 프로덕션 경로 0건" 조건이 CANCEL 행에서 깨진다.
+        EnrollmentRequest request = EnrollmentRequest.createCancel(memberId, courseId, enrollmentId);
         EnrollmentRequest saved = requestRepository.save(request);
         return saved.getId();
     }

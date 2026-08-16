@@ -36,4 +36,12 @@ public interface WaitlistEntryRepository extends JpaRepository<WaitlistEntry, Lo
      * 충분하다.
      */
     Optional<WaitlistEntry> findByMemberIdAndCourseIdAndStatus(Long memberId, Long courseId, WaitlistStatus status);
+
+    /**
+     * 승격 헬퍼(promoteNextEligible, design.md §4.3)가 가장 앞선 활성 대기자
+     * 1건을 찾는 데 쓴다(M4, REQ-WL-003/REQ-WL-009). {@code status=WAITING}
+     * 필터가 "활성"의 규범적 정의(spec.md §A.4.3)와 정확히 일치한다 —
+     * 종단 상태 3종은 이 조회에 나타나지 않는다.
+     */
+    Optional<WaitlistEntry> findFirstByCourseIdAndStatusOrderByPositionAsc(Long courseId, WaitlistStatus status);
 }

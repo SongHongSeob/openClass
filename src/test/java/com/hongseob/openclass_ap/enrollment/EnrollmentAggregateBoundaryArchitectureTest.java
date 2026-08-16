@@ -40,6 +40,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 대칭으로, 이 테스트는 확정 저장소({@link EnrollmentRepository})와 확정
  * 엔티티({@link Enrollment}) 자체를 워커 패키지로 한정한다 — 컨트롤러·접수
  * 서비스가 이 둘을 직접 참조하는 경로를 구조적으로 차단한다.</p>
+ *
+ * <p><b>M4 예외 추가 근거</b>: {@code receipt.EnrollmentReceiptService}가
+ * 취소 접수의 1차 소유권 검증(REQ-CNL-002, AC-ENR-036)을 위해 {@code
+ * EnrollmentRepository}의 프로젝션 조회 메서드({@code
+ * findCourseIdByIdAndMemberIdAndStatus} — {@code Enrollment} 엔티티가 아닌
+ * courseId 원시 값만 반환한다)를 참조한다. 이 규칙이 막는 것은 "확정 생성·
+ * 변경 경로가 워커 1개소를 벗어나는 것"(INV-ENR-002)이며, 존재·소유권 확인을
+ * 위한 읽기 전용 조회는 그 위협 모델에 해당하지 않는다 — M3가 상태 조회
+ * 패키지에 세운 것과 동일한 선례다({@link
+ * EnrollmentQueueBoundaryArchitectureTest} "M3 예외 추가 근거" 참고). {@code
+ * Enrollment} 엔티티 자체는 여전히 워커 패키지 밖에서 참조할 수 없으므로
+ * 아래 3번째 테스트는 그대로 유지한다.</p>
  */
 class EnrollmentAggregateBoundaryArchitectureTest {
 
@@ -72,11 +84,15 @@ class EnrollmentAggregateBoundaryArchitectureTest {
                 .isEmpty();
     }
 
-    // AC-ENR-009 (ii) — 구조적 검증 (EnrollmentRepository)
+    // AC-ENR-009 (ii) — 구조적 검증 (EnrollmentRepository).
+    // M4 예외: receipt 패키지는 취소 접수의 1차 소유권 검증(프로젝션
+    // 조회, Enrollment 엔티티는 노출하지 않음)을 위해 참조가 허용된다
+    // (클래스 Javadoc "M4 예외 추가 근거" 참고).
     @Test
-    void EnrollmentRepository는_워커_패키지에서만_참조된다() {
+    void EnrollmentRepository는_워커와_접수_패키지에서만_참조된다() {
         ArchRule rule = noClasses()
                 .that().resideOutsideOfPackage("..enrollment.worker..")
+                .and().resideOutsideOfPackage("..enrollment.receipt..")
                 .and().doNotHaveFullyQualifiedName("com.hongseob.openclass_ap.enrollment.EnrollmentRepository")
                 .and().doNotHaveFullyQualifiedName("com.hongseob.openclass_ap.enrollment.Enrollment")
                 .should().dependOnClassesThat()
