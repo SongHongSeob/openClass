@@ -1,5 +1,6 @@
 package com.hongseob.openclass_ap.waitlist;
 
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -27,4 +28,12 @@ public interface WaitlistEntryRepository extends JpaRepository<WaitlistEntry, Lo
      * 통과해 같은 강좌의 대기 순번을 2개 점유한다(design.md §4.3).
      */
     boolean existsByMemberIdAndCourseIdAndStatus(Long memberId, Long courseId, WaitlistStatus status);
+
+    /**
+     * 상태 조회 API가 대기 순번을 노출하기 위해 사용한다(M3, REQ-STS-001,
+     * AC-ENR-024). {@code (member_id, course_id) WHERE status='WAITING'} 부분
+     * 유니크 인덱스(INV-ENR-009)가 최대 1건만 존재함을 보장하므로 단건 조회로
+     * 충분하다.
+     */
+    Optional<WaitlistEntry> findByMemberIdAndCourseIdAndStatus(Long memberId, Long courseId, WaitlistStatus status);
 }

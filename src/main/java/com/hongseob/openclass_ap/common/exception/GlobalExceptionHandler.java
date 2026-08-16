@@ -51,4 +51,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ErrorResponse.of("CAPACITY_BELOW_ENROLLMENT", ex.getMessage()));
     }
+
+    /**
+     * 존재하지 않거나 본인 소유가 아닌 신청 요청 조회를 404로 거부한다(M3,
+     * REQ-STS-002, AC-ENR-025). 두 경우를 구분하지 않는 것이 의도다 — IDOR
+     * 방지를 위해 요청의 존재 여부 자체를 노출하지 않는다.
+     */
+    @ExceptionHandler(EnrollmentRequestNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleEnrollmentRequestNotFound(EnrollmentRequestNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("ENROLLMENT_REQUEST_NOT_FOUND", ex.getMessage()));
+    }
 }

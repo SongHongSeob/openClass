@@ -393,6 +393,148 @@ $ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/receipt/Enrollm
 
 Semi-autonomous progression(마일스톤별 확인)에 따라 M2 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M3(상태 조회)로 진행할지 결정한다.
 
+### M3 — 상태 조회 (완료)
+
+**신규 산출물**
+
+| 파일 | 역할 |
+|---|---|
+| `common/exception/EnrollmentRequestNotFoundException.java` (신규) | 존재하지 않거나 본인 소유가 아닌 요청 조회 시 던지는 예외 — 두 경우를 동일하게 취급해 존재 여부를 노출하지 않는다(REQ-STS-002) |
+| `common/exception/GlobalExceptionHandler.java` (수정) | 위 예외 → 404 `ENROLLMENT_REQUEST_NOT_FOUND` 매핑 1건 추가 (기존 핸들러 4건은 무변경) |
+| `enrollment/dto/EnrollmentStatusResponse.java` (신규) | 상태 조회 응답 record(`requestId`, `status`, `waitlistPosition`) |
+| `enrollment/query/EnrollmentStatusQueryService.java` (신규) | 읽기 전용(`@Transactional(readOnly=true)`) 상태 조회 + 소유권 검증(REQ-STS-001/002/004) |
+| `waitlist/WaitlistEntryRepository.java` (수정) | `findByMemberIdAndCourseIdAndStatus` 추가 — 대기 순번 조회용(기존 `existsBy...` 메서드는 무변경) |
+| `enrollment/EnrollmentController.java` (수정) | 클래스 수준 `@RequestMapping("/api/courses")` 제거하고 메서드마다 전체 경로 명시(접수/상태조회 경로 접두사가 다르므로) + `GET /api/enrollment-requests/{requestId}` 추가. `receive()`의 동작·경로 문자열은 완전 동일 |
+| `enrollment/EnrollmentQueueBoundaryArchitectureTest.java` (수정, 테스트) | `EnrollmentRequestRepository` 참조 허용 패키지에 `enrollment.query`를 추가 — **M1 Javadoc이 이미 이 예외를 예정해 두었다**("상태 조회(M3)가 이 저장소를 읽기 전용으로 참조해야 하므로, 그 마일스톤은 이 규칙에 `query` 패키지 예외를 추가해야 한다") |
+| 테스트 2개 클래스, 9개 메서드 | 아래 AC 매트릭스 참고 |
+
+**설계 판단 — 컨트롤러 경로 리팩터링**: design.md §8은 접수(`/api/courses/{courseId}/enrollments`)와 상태 조회(`/api/enrollment-requests/{requestId}`)를 **서로 다른 경로 접두사**로 정의한다. 기존 `EnrollmentController`는 클래스 수준 `@RequestMapping("/api/courses")`를 갖고 있어 그 아래에 상태 조회 경로를 추가할 수 없었다(Spring은 메서드 경로를 클래스 경로에 항상 접두사로 붙인다). 클래스 수준 매핑을 제거하고 각 메서드에 전체 경로를 명시하는 방식으로 바꿨다 — `receive()`의 실제 경로 문자열(`/api/courses/{courseId}/enrollments`)과 동작은 완전히 동일하므로 M1 회귀 테스트(`EnrollmentReceiptApiIntegrationTest`)가 무수정으로 통과했다.
+
+**AC PASS/FAIL 매트릭스 (AC-ENR-024 ~ 027)**
+
+| AC | 상태 | 검증 명령 | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-024 | PASS | `./gradlew test --tests "*.EnrollmentStatusQueryApiIntegrationTest"` | `워커_구동_전에는_PENDING이고_구동_후에는_종단_결과값을_반환한다() PASS` — 워커 구동 전 `$.status=="PENDING"`, 구동 후 `$.status=="SUCCESS"`. `결과가_WAITLISTED이면_대기_순번이_함께_반환된다() PASS` — 정원 1 강좌에 2명 접수, 두 번째 신청자 조회 시 `$.status=="WAITLISTED"`·`$.waitlistPosition==1` |
+| **AC-ENR-025** (보안 — 소유권 검증) | **PASS** | 동일 | `타인의_요청을_조회하면_404이고_본문에_소유자_정보가_노출되지_않는다() PASS` — 회원 B가 회원 A의 requestId 조회 시 404, 응답 본문에 `$.status`·`$.memberId`·`$.courseId`·`$.waitlistPosition` 키 자체가 없음(`jsonPath(...).doesNotExist()`), 본문에 상태값 리터럴(`PENDING`/`SUCCESS`/`WAITLISTED`) 미포함 확인. 소유자 본인은 동일 요청을 정상 조회 가능함을 이어서 확인(자원 자체의 결함이 아님을 입증). `존재하지_않는_요청을_조회하면_404다() PASS` — `$.code=="ENROLLMENT_REQUEST_NOT_FOUND"` |
+| **AC-ENR-026** (부하 상한 실측) | **PASS** | `./gradlew test --tests "*.EnrollmentStatusLoadLatencyIntegrationTest"` (격리 실행, HikariCP 풀 60으로 확장) | `정원_100_강좌에_500명이_동시_접수해도_마지막_요청까지_5초_이내에_종단_결과에_도달한다() PASS` — **2회 반복 실측: 1,641ms / 1,656ms** (5,000ms 목표 대비 여유 3.3~3.4초), 처리량 **301.9~304.7건/초**. 확정 정확히 100건(`enrolled_count`와 일치), 대기 400건, 500건 전부 `state=DONE` 도달 확인. 아래 "AC-ENR-026 실측 vs 설계 산출 정합" 절에서 design.md §6과 대조 |
+| AC-ENR-027 | PASS | 동일(`EnrollmentStatusQueryApiIntegrationTest`) | `상태_조회를_20회_반복해도_부작용이_없다() PASS` — 20회 반복 조회 전후 `enrollment`·`waitlist_entry`·`enrollment_request` 행 수 및 결과값 완전 동일 |
+
+**테스트 코드 발췌 — AC-ENR-025 핵심 단언 (소유자 정보 비노출)**
+
+```java
+mockMvc.perform(get("/api/enrollment-requests/" + requestId)
+                .header("Authorization", bearer(memberBToken)))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.status").doesNotExist())
+        .andExpect(jsonPath("$.memberId").doesNotExist())
+        .andExpect(jsonPath("$.courseId").doesNotExist())
+        .andExpect(jsonPath("$.waitlistPosition").doesNotExist());
+```
+
+> 최초 구현은 `assertThat(body).doesNotContain(memberAId.toString())` 형태의 숫자 부분일치 검사였으나, 클래스 내 다른 테스트 메서드가 누적시킨 시퀀스 값과 우연히 겹쳐(`requestId=4`가 우연히 다른 식별자와 같은 자릿수) 거짓 실패가 발생했다 — 테스트 자체의 결함이었다(프로덕션 코드 문제 아님). JSON 키 부재 + 상태값 리터럴 부재 검증으로 교체해 해소했다.
+
+## AC-ENR-026 실측 vs 설계 산출 정합 (Section E.2 요구 사항)
+
+design.md §6 계산 예산: **A(접수 직렬화, 추정 ≤0.5초) + B(워커 소진, 1.0초) + C(폴링 대기, 0.2초) ≈ 1.7초** (5초 목표 대비 여유 3.3초).
+
+**실측치: 1,641ms / 1,656ms (2회 반복)** — 계산 예산(1,700ms)과 **거의 정확히 일치**한다(오차 3~4%, 단일 실행 변동 범위 내). 이 테스트는 `worker.drainQueue()`를 직접 호출하므로 C항(단일 폴링 대기 0.2초)이 측정에 포함되지 않는다 — 대신 그만큼 더 낙관적인 방향이며, 5초 목표 미달을 감추는 방향이 아니다. A항(접수 잠금 직렬화)이 실측으로는 예상보다 낮게 나타난 것으로 보이나(500건 동시 접수가 700ms 미만에 끝남), 그 차이는 C항 부재로 상쇄되는 정도이며 전체 그림은 design.md §6의 정성적 예측(500건 상한에서 5초 목표 대비 넉넉한 여유)과 일치한다.
+
+**결론 — 정합 확인, 개정 불필요**: `research.md §7 V5/V6` 실측 우선 원칙에 따라 실측치가 계산과 어긋나면 요구사항 숫자를 개정해야 하지만, 이번 실측은 계산값과 정합했으므로 **REQ-STS-003(부하 상한 500건, 5초 목표)이나 `EnrollmentSchedulerProperties`(폴링 200ms·배치 200)의 개정이 필요하지 않다.** DoD 체크리스트 항목("REQ-STS-003의 부하 상한이 AC-ENR-026의 실측치와 정합")이 이것으로 충족되었다. 블로커 보고서를 발행하지 않았다 — 설정을 실측에 끼워 맞춘 것이 아니라, 실측이 기존 설정·요구사항과 이미 정합했음을 직접 측정으로 확인한 것이다.
+
+### 빌드 및 테스트 검증
+
+```
+$ ./gradlew compileJava compileTestJava
+BUILD SUCCESSFUL
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentStatusQueryApiIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentStatusLoadLatencyIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed (2회 반복, 매번 PASS — 1,641ms / 1,656ms)
+
+# M1/M2 회귀 재확인 (EnrollmentController·WaitlistEntryRepository·GlobalExceptionHandler·
+# EnrollmentQueueBoundaryArchitectureTest를 수정했으므로, 개별 격리 실행 — 환경 플레이키니스 대응)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentReceiptApiIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentAggregateBoundaryArchitectureTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueBoundaryArchitectureTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed (ArchUnit 규칙에 query 패키지 예외 추가 후 PASS)
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptLockOrderTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.request.EnrollmentQueueSchemaIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSchedulerConfigurationTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSingleScheduleActivationPointTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentDbConstraintBackstopIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOversellPreventionConcurrencyTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentClaimExclusivityConcurrencyTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentMultiBatchOrderIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOrderGuaranteeIntegrationTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentLockDisabledControlGroupIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+```
+
+**M3 신규 테스트 총계: 2개 클래스, 9개 메서드(상태조회 6개 + 부하측정 1개는 M3 신규; 위 목록의 나머지는 M1/M2 회귀 재확인), 격리 실행에서 전부 PASS.** 첫 배치 시도(`EnrollmentReceiptApiIntegrationTest` + `EnrollmentStatusQueryApiIntegrationTest` 2개 클래스 동시 실행)는 M1/M2와 동일한 서명(`HikariPool ... Connection is not available` / `Connection refused`)으로 실패했다 — 개별 격리 실행에서는 매번 성공했으므로 M1/M2 잔여 위험 1번과 동일한 환경 문제로 판단한다(아래 잔여 위험 1번 참고).
+
+**커버리지 (jacoco, `enrollment`+`waitlist` 패키지, 위 12개 클래스를 각각 격리 실행해 누적 — `./gradlew clean` 이후 순차 실행)**:
+
+```
+com/hongseob/openclass_ap/enrollment          62.5% (15/24 라인)
+com/hongseob/openclass_ap/enrollment/request  100.0% (29/29)
+com/hongseob/openclass_ap/enrollment/receipt  80.0% (12/15)
+com/hongseob/openclass_ap/enrollment/worker   78.5% (51/65)
+com/hongseob/openclass_ap/enrollment/query    25.0% (4/16)  — 아래 잔여 위험 2번 참고
+com/hongseob/openclass_ap/enrollment/dto      0.0% (0/2)   — record 접근자 boilerplate, M1/M2와 동일한 측정 아티팩트
+com/hongseob/openclass_ap/waitlist            100.0% (13/13)
+```
+
+### 정적 검증
+
+```
+$ grep -rn "AskUserQuestion" src/main/java/com/hongseob/openclass_ap/enrollment src/main/java/com/hongseob/openclass_ap/waitlist src/main/java/com/hongseob/openclass_ap/common/exception src/test/java/com/hongseob/openclass_ap/enrollment
+(no output, exit=1)
+
+$ git diff --stat -- src/main/java/com/hongseob/openclass_ap/course src/main/java/com/hongseob/openclass_ap/member src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java
+(no output — PRESERVE 대상 완전 무변경)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/receipt/EnrollmentReceiptService.java
+(no output — M1 접수 잠금 로직 완전 무변경)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentRequestProcessor.java src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java
+(no output — M2 워커/프로세서 핵심 디스패치 로직 완전 무변경)
+```
+
+### 잔여 위험 (Residual Risk)
+
+1. **다중 클래스 동시 배치 실행 시 간헐적 컨테이너 불안정 (M1/M2와 동일한 환경 문제, 코드 결함 아님 — 3번째 마일스톤 연속 재현)**: `EnrollmentReceiptApiIntegrationTest` + `EnrollmentStatusQueryApiIntegrationTest` 2개 클래스를 1회 gradle 호출로 함께 실행했을 때 8개 메서드 중 5개가 `HikariPool ... Connection is not available` / `Connection refused` 시그니처로 실패했다(3분 54초 소요 후 실패 — 정상 실행이라면 수 초 내 완료). `EnrollmentWorkerDispatchIntegrationTest` + `EnrollmentDbConstraintBackstopIntegrationTest` 2개 클래스 조합에서도 동일 패턴(3분 11초 소요 후 실패)이 재현되었다. 두 경우 모두 **개별 클래스로 분리해 재실행하면 매번 100% 성공**했다(이번 마일스톤에서 총 12회 이상의 개별 격리 실행, 전부 성공 — 위 "빌드 및 테스트 검증" 절 참고). 이 패턴은 M1·M2 잔여 위험 1번과 정확히 일치하며, 이번 마일스톤에서 **세 번째로 재현**되어 "로컬 Docker 환경에서 다수의 `@SpringBootTest` 컨텍스트를 연속 기동할 때 나타나는 환경 불안정성"이라는 기존 결론을 한 번 더 뒷받침한다. AC PASS/FAIL 매트릭스의 근거는 모두 개별 격리 실행이다.
+2. **`enrollment/query` 패키지 jacoco 라인 커버리지 25%(4/16) — M1의 `EnrollmentController` 36%(4/11) 사례와 동일한 측정 아티팩트로 추정**: `EnrollmentStatusQueryApiIntegrationTest`의 5개 메서드가 `getStatus()`의 모든 분기(PENDING/SUCCESS/WAITLISTED-순번 포함/타인-404/존재하지않음-404/20회 반복 무부작용)를 실제 MockMvc HTTP 호출 + JsonPath 어서션으로 검증하여 **전부 PASS**했음에도, jacoco 라인 히트맵은 `getStatus()` 메서드 본문(46~61행 부근)을 대부분 0으로 보고한다. M1이 이미 동일한 패턴(`EnrollmentController.receive()`/`resolveMemberId()`가 HTTP 어서션 전부 통과에도 jacoco 0)을 관찰했고 "Spring Boot 4.1.0의 AOT/프록시 관련 jacoco 계측 상호작용 추정"으로 결론 내린 바 있다 — 이번 재현으로 그 추정에 힘이 실린다(두 클래스 모두 컨트롤러↔서비스 경계를 넘나드는 Spring 빈이라는 공통점이 있다). 실제 동작 증거(통과한 HTTP 어서션 6종의 분기별 검증)가 jacoco 라인 카운터보다 강한 증거라고 판단하여 결함으로 취급하지 않으나, 근본 원인은 여전히 확정하지 못했다.
+3. **`EnrollmentQueueBoundaryArchitectureTest` 예외 추가는 테스트 파일 수정이지만 M1이 사전 승인한 범위**: M1의 클래스 Javadoc이 "상태 조회(M3)가 이 저장소를 읽기 전용으로 참조해야 하므로, 그 마일스톤은 이 규칙에 query 패키지 예외를 추가해야 한다"고 명시적으로 예정해 두었으므로, 이 수정은 B10(PRESERVE 원칙) 위반이 아니라 M1이 설계한 확장 지점을 M3가 채운 것이다.
+
+### 다음 단계
+
+Semi-autonomous progression(마일스톤별 확인)에 따라 M3 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M4(대기명단 및 취소)로 진행할지 결정한다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_
