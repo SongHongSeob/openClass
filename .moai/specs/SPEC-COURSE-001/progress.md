@@ -52,6 +52,22 @@ tier: M
 
 선택지가 열려 있던 두 항목(D3·D10)의 결정 근거는 plan.md HISTORY "0.1.2 결정 근거"에 기록했다.
 
+## §F Phase 4 Mode Selection
+
+**Input parameters**:
+- tier: M
+- scope (file count): ~11-13 production files, 6-8 test files (per plan.md 예상)
+- domain count: 1 (single Java/Spring Boot backend domain, SPEC-AUTH-001 골격 확장)
+- file language mix: 100% Java
+- concurrency benefit: LOW (coding-heavy implementation — Anthropic coding-task parallelism caveat)
+- Agent Teams prereqs: N/A (Mode 3 retired)
+
+**Decision**: sub-agent (Mode 5)
+
+**Justification**: SPEC-AUTH-001과 동일한 근거 — 단일 도메인 Java/Spring Boot TDD 구현, 순차적 마일스톤 의존성(M1 엔티티 → M2 공개 API → M3 관리자 API → M4 비기능 마감). Anthropic의 코딩 작업 병렬성 주의사항에 따라 Mode 5(순차 서브에이전트, 마일스톤당 1개)가 기본값이다.
+
+**Implementation Kickoff Approval confirmation**: obtained via AskUserQuestion — **자율 진행(autonomous progression)** 선택. 마일스톤마다 체크포인트 확인 없이 진행하되, 데이터 레이스·설계 붕괴·동시성 이슈 등 심각한 문제 발생 시 멈추고 보고하는 조건.
+
 ## §E.2 Run-phase Evidence
 
 _<pending run-phase>_
