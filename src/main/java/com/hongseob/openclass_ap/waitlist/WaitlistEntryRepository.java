@@ -19,4 +19,12 @@ public interface WaitlistEntryRepository extends JpaRepository<WaitlistEntry, Lo
      */
     @Query("SELECT COALESCE(MAX(w.position), 0) + 1 FROM WaitlistEntry w WHERE w.courseId = :courseId")
     long nextPosition(@Param("courseId") Long courseId);
+
+    /**
+     * REQ-WRK-007 중복 검사 3번 — 동일 회원이 동일 강좌에 이미 활성
+     * ({@link WaitlistStatus#WAITING}) 대기명단 항목을 보유하는지 확인한다
+     * (M2, 2차 감사 E1). 이 검사가 없으면 이미 대기자가 된 회원의 재신청이
+     * 통과해 같은 강좌의 대기 순번을 2개 점유한다(design.md §4.3).
+     */
+    boolean existsByMemberIdAndCourseIdAndStatus(Long memberId, Long courseId, WaitlistStatus status);
 }

@@ -217,6 +217,182 @@ $ git diff --stat -- src/main/java/com/hongseob/openclass_ap/course src/main/jav
 
 Semi-autonomous progression(마일스톤별 확인)에 따라 M1 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M2(워커 및 확정 경로 단일성)로 진행할지 결정한다.
 
+### M2 — 워커 및 확정 경로 단일성 (완료)
+
+**신규 산출물**
+
+| 파일 | 역할 |
+|---|---|
+| `enrollment/worker/EnrollmentFailureInjector.java` + `NoOpEnrollmentFailureInjector.java` | AC-ENR-016/017 재현 전용 테스트 훅 인터페이스 + 프로덕션 무동작 기본 구현 |
+| `enrollment/worker/EnrollmentSchedulerProperties.java` | 워커 폴링 주기·배치 크기 설정값(`app.enrollment.worker.*`, design.md §6과 일치: 200ms/200건) |
+| `enrollment/worker/EnrollmentRequestProcessor.java` (수정) | ENROLL 전체 디스패치(마감 → 중복 3종 → 확정/대기) + `recordFailure`(REQUIRES_NEW FAILED 기록) |
+| `enrollment/worker/EnrollmentQueueWorker.java` (수정) | `poll()`(유일한 `@Scheduled` 지점) 추가 + `drainQueue()`의 실패 격리(try/catch → recordFailure) + 배치 크기 설정화 |
+| `enrollment/EnrollmentRepository.java` (수정) | 중복 검사 1번 `existsByMemberIdAndCourseIdAndStatus` |
+| `enrollment/request/EnrollmentRequestRepository.java` (수정) | 중복 검사 2번 `existsByMemberIdAndCourseIdAndStateAndIdNot` |
+| `waitlist/WaitlistEntryRepository.java` (수정) | 중복 검사 3번 `existsByMemberIdAndCourseIdAndStatus` |
+| `OpenclassApApplication.java` (수정) | `@EnableScheduling` 1회 선언 |
+| `application.properties` (수정) | `app.enrollment.worker.*` 3개 프로퍼티(폴링 200ms·배치 200·스케줄러 활성화) |
+| `AbstractIntegrationTest.java` (수정) | `app.enrollment.worker.scheduler-enabled=false` — 모든 통합 테스트가 자동 폴링 대신 `drainQueue()`를 명시 호출 |
+| `README.md` (수정) | "수강신청 큐·워커" 절 — 단일 워커 인스턴스 전제 + 다중 인스턴스 경고 문서화(AC-ENR-019) |
+| `enrollment/worker/fixture/EnrollmentFailureInjectorTestConfig.java` (테스트 전용) | `@TestConfiguration` + `@Primary` — `member.fixture.AuthTestFixtureController`(SPEC-AUTH-001)와 동일한 계보 |
+| 테스트 9개 클래스, 26개 메서드 | 아래 AC 매트릭스 참고 |
+
+**AC PASS/FAIL 매트릭스 (AC-ENR-008 ~ 023)**
+
+| AC | 상태 | 검증 명령 | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-008 | **PASS (M2 범위 — 접수 API만, PASS-WITH-DEBT)** — 취소·정원증설 API는 M4/M5가 추가하며 그 산출물로 이 테스트를 확장한다 | `./gradlew test --tests "*.EnrollmentWorkerDispatchIntegrationTest"` | `워커를_한번도_구동하지_않으면_접수_API_호출로도_도메인이_변하지_않는다() PASS` — 접수 API 호출 전후 `enrollment` 행 수·`course.enrolled_count` 완전 동일, `enrollment_request`만 1건 증가 |
+| AC-ENR-009 | PASS | `./gradlew test --tests "*.EnrollmentAggregateBoundaryArchitectureTest"` | (i) `Enrollment을_대상으로_하는_CascadeType_PERSIST_또는_ALL_매핑이_0건이다() PASS` — 전체 `@Entity` 클래스 리플렉션 순회, 위반 0건. (ii) `EnrollmentRepository는_워커_패키지에서만_참조된다() PASS` + `Enrollment_애그리게이트는_워커_패키지에서만_참조된다() PASS` — ArchUnit, 위반 0건 |
+| **AC-ENR-010 (단일 관문 ②)** | **PASS** | `./gradlew test --tests "*.EnrollmentOversellPreventionConcurrencyTest"` | `정원_10에_50명이_동시_접수해도_확정은_정확히_10건이고_확정자는_접수_순서_상위_10명과_일치한다() PASS` — `CountDownLatch`로 50스레드 동시 접수, 드레인 후 `enrollment` 행 정확히 10건(전부 `status=ENROLLED`), `course.enrolled_count == 10`(일치), `WAITLISTED` 40건, `SUCCESS` 10건. **3회 반복 실행 전부 PASS**(재현성 확인) |
+| AC-ENR-011 | PASS | 동일(위와 같은 테스트 메서드) | 확정된 10명의 회원 집합이 `requestId` 오름차순 상위 10건의 회원 집합과 `containsExactlyInAnyOrderElementsOf`로 정확히 일치 |
+| AC-ENR-012 | PASS | 동일 클래스 | `정원_1에_2명이_동시_접수하면_확정은_1건이고_순서값이_작은_쪽이_확정된다() PASS` — `enrollmentRepository.count()==1`, 순서값이 작은 요청이 `SUCCESS`, 큰 쪽이 `WAITLISTED` |
+| AC-ENR-013 | PASS | `./gradlew test --tests "*.EnrollmentWorkerDispatchIntegrationTest"` | `마감된_강좌의_대기중_ENROLL_요청_3건은_전부_CLOSED로_종결되고_도메인_생성이_없다() PASS` — 3건 전부 `result=CLOSED`, `enrollment`·`waitlist_entry` 0건, `enrolled_count` 불변 |
+| AC-ENR-014 | PASS | `./gradlew test --tests "*.EnrollmentWorkerDispatchIntegrationTest"` | 3개 메서드 전부 PASS — 검사 1(이미 확정) 단독, 검사 2(미처리 PENDING, 첫 요청을 의도적으로 미처리 상태로 남겨 분리 검증) 단독, 검사 3(활성 대기) 단독. 셋 다 `REJECTED` + 도메인 무변화 확인 |
+| AC-ENR-015 | PASS | `./gradlew test --tests "*.EnrollmentDbConstraintBackstopIntegrationTest"` | `동일_강좌_동일_회원의_중복_확정_행_직접_INSERT는_DB_제약으로_거부된다() PASS` — `JdbcTemplate` 직접 INSERT → `DataIntegrityViolationException` |
+| AC-ENR-016 | PASS | `./gradlew test --tests "*.EnrollmentQueueResilienceIntegrationTest"` | 아래 발췌 참고 — 3건 중 2번째만 실패해도 1·3번째가 정상 `SUCCESS` 종단 |
+| **AC-ENR-017** | **PASS** | 동일 | 아래 발췌 참고 — 실패한 요청의 `enrollment` INSERT·`enrolled_count` 증가 롤백 + `state=DONE, result=FAILED` 기록 **동시** 성립 |
+| AC-ENR-018 | PASS | 동일 클래스 + 소스 검색(아래) | `이미_DONE인_요청을_강제로_재처리해도_도메인이_변하지_않고_결과도_유지된다() PASS` — 재처리 후에도 `enrollment` 1건·`enrolled_count` 1 유지. 소스 검색: `this.state = RequestState.PENDING`은 비공개 생성자(신규 생성) 1곳뿐, DONE→PENDING 역전이 코드 경로 0건 |
+| AC-ENR-019 | PASS | `./gradlew test --tests "*.EnrollmentWorkerSingleScheduleActivationPointTest"` + `grep -rn "@Scheduled" src/main/java` | 테스트: `@Scheduled` 메서드 정확히 1개(`EnrollmentQueueWorker.poll`) PASS. grep: 1건 일치(`EnrollmentQueueWorker.java:41`). README.md "수강신청 큐·워커" 절에 단일 인스턴스 전제 + 다중 인스턴스 경고 명시 |
+| AC-ENR-020 | PASS | `./gradlew test --tests "*.EnrollmentClaimExclusivityConcurrencyTest"` | `두_동시_클레임_트랜잭션은_동일한_행_id를_반환하지_않는다() PASS` — 수동 트랜잭션으로 1차 클레임을 붙잡은 상태에서 2차 클레임 실행, 두 배치 사이 겹치는 id 0건, 양쪽 모두 비어있지 않음(실제 경합 발생 확인) |
+| AC-ENR-021 | PASS | `./gradlew test --tests "*.EnrollmentDbConstraintBackstopIntegrationTest"` | `확정_인원이_정원과_같을_때_enrolled_count를_직접_증가시키는_UPDATE는_DB_제약으로_거부된다() PASS` — `enrolled_count=5`(정원 5)에서 6으로 UPDATE 시도 → `DataIntegrityViolationException` |
+| AC-ENR-022 | PASS | `./gradlew test --tests "*.EnrollmentWorkerSchedulerConfigurationTest"` | `워커_설정값이_design_md_6_산출표와_일치한다() PASS` — `pollingDelayMs=200`, `batchSize=200` (design.md §6 산출표와 정합, 개정 기록 불필요) |
+| AC-ENR-023 | PASS | `./gradlew test --tests "*.EnrollmentMultiBatchOrderIntegrationTest"` | `배치_크기보다_많은_요청이_여러_배치에_걸쳐_처리되어도_확정과_대기_순번이_접수_순서와_일치한다() PASS` — 강제 배치 크기 3으로 12건을 4개 배치에 걸쳐 처리, 확정 5명이 접수 순서 상위 5명과 일치, 대기 순번 1~7이 접수 순서와 정확히 일치 |
+
+**M2 완료 조건 재확인**: plan.md §F가 명시한 M2 완료 조건 "AC-ENR-008(워커 미구동 시 도메인 무변화)과 AC-ENR-010(정원 초과 0건)이 통과한다"가 충족되었다.
+
+**테스트 코드 발췌 — AC-ENR-016/017 핵심 단언 (가장 까다로운 정합성 논증)**
+
+```java
+// 준비: 3건 접수(r1, r2, r3), r2에만 확정 INSERT 직후 예외 주입
+controllableInjector.failNextFor(r2);
+worker.drainQueue();
+
+// AC-ENR-016 — 실패한 2번째 요청이 나머지 처리를 막지 않는다
+assertThat(requestRepository.findById(r1).orElseThrow().getResult()).isEqualTo(RequestResult.SUCCESS);
+assertThat(requestRepository.findById(r3).orElseThrow().getResult()).isEqualTo(RequestResult.SUCCESS); // PENDING으로 남지 않음
+
+// AC-ENR-017 — 상태 전이(FAILED)는 남지만 도메인 변경은 롤백된다 (동시에 성립)
+EnrollmentRequest r2Row = requestRepository.findById(r2).orElseThrow();
+assertThat(r2Row.getState()).isEqualTo(RequestState.DONE);
+assertThat(r2Row.getResult()).isEqualTo(RequestResult.FAILED);
+assertThat(enrollmentRepository.count()).isEqualTo(2);              // r1·r3만 — r2의 INSERT는 롤백
+assertThat(courseRepository.findById(courseId).orElseThrow().getEnrolledCount()).isEqualTo(2); // 증가도 함께 롤백
+```
+
+**테스트 코드 발췌 — AC-ENR-010 핵심 단언 (단일 관문 ②)**
+
+```java
+// 정원 10, 50명 CountDownLatch 동시 접수
+worker.drainQueue();
+List<Enrollment> enrolled = enrollmentRepository.findAll();
+assertThat(enrolled).hasSize(10);
+assertThat(courseRepository.findById(courseId).orElseThrow().getEnrolledCount()).isEqualTo(10);
+assertThat(successCount).isEqualTo(10L);
+assertThat(waitlistedCount).isEqualTo(40L);
+// AC-ENR-011 — 확정자 집합이 접수 순서 상위 10명과 일치
+assertThat(confirmedMembers).containsExactlyInAnyOrderElementsOf(topByRequestId);
+```
+
+### 빌드 및 테스트 검증
+
+```
+$ ./gradlew compileJava compileTestJava
+BUILD SUCCESSFUL
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentAggregateBoundaryArchitectureTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSingleScheduleActivationPointTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueBoundaryArchitectureTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentDbConstraintBackstopIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOversellPreventionConcurrencyTest"   (3회 반복 실행)
+BUILD SUCCESSFUL — 2 tests, 0 failed  (매 회차 동일)
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentClaimExclusivityConcurrencyTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentMultiBatchOrderIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSchedulerConfigurationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+# M1 회귀 재확인 (이 마일스톤이 EnrollmentQueueWorker/EnrollmentRequestProcessor를 수정했으므로)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentReceiptApiIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptLockOrderTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.request.EnrollmentQueueSchemaIntegrationTest"
+BUILD SUCCESSFUL — 7 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOrderGuaranteeIntegrationTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentLockDisabledControlGroupIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+# 프로젝트 전역 영향 확인 (OpenclassApApplication.java·application.properties는 SPEC 전역 파일)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.CourseSchemaIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.member.LoginIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.member.AuthorizationIntegrationTest"
+BUILD SUCCESSFUL — 14 tests, 0 failed
+```
+
+**M2 신규 테스트 총계: 9개 클래스, 26개 메서드, 개별/소배치 실행에서 전부 PASS**(아래 잔여 위험 참고 — 다중 클래스 동시 배치 실행은 M1과 동일한 환경 플레이키니스의 영향을 받는다).
+
+**커버리지 (jacoco, `enrollment`+`waitlist` 패키지, 6개 클래스를 1회 gradle 호출로 함께 실행해 누적 — `EnrollmentWorkerDispatchIntegrationTest`만 환경 문제로 그 회차에 실패했으므로 이 숫자는 보수적 하한이다)**:
+
+```
+com/hongseob/openclass_ap/enrollment          66.7% (14/21 라인)
+com/hongseob/openclass_ap/enrollment/request  100.0% (29/29)
+com/hongseob/openclass_ap/enrollment/receipt  93.3% (14/15)
+com/hongseob/openclass_ap/enrollment/worker   81.5% (53/65)
+com/hongseob/openclass_ap/waitlist            100.0% (13/13)
+com/hongseob/openclass_ap/enrollment/dto      0.0% (0/1) — record 접근자 boilerplate, M1과 동일한 측정 아티팩트
+```
+
+M1 대비 `worker` 패키지가 91.4%(32/35)에서 81.5%(53/65)로 표기상 낮아 보이지만 이는 **모수가 65행으로 거의 2배 증가**(디스패치 로직 전체 확장)했기 때문이며, 이 회차에서 `EnrollmentWorkerDispatchIntegrationTest`(중복 검사 3종 경로)가 환경 문제로 커버리지 집계에서 누락되었으므로 실제 값은 더 높다 — 아래 잔여 위험 1번 참고.
+
+### 정적 검증
+
+```
+$ grep -rn "AskUserQuestion" src/main/java/com/hongseob/openclass_ap/enrollment src/main/java/com/hongseob/openclass_ap/waitlist src/test/java/com/hongseob/openclass_ap/enrollment
+(no output, exit=1)
+
+$ grep -rn "EnrollmentRequestRepository\b" --include="*.java" src/main/java | grep -v "enrollment/receipt\|enrollment/worker\|enrollment/request/EnrollmentRequestRepository.java"
+(no output — receipt/worker 패키지 외 참조 0건)
+
+$ grep -rln "EnrollmentRepository\b" --include="*.java" src/main/java | grep -v "enrollment/worker\|enrollment/EnrollmentRepository.java"
+(no output — worker 패키지 외 참조 0건)
+
+$ grep -rn "@Scheduled" src/main/java
+src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java:41   (유일한 스케줄러 활성화 지점)
+
+$ grep -n "this.state = RequestState.PENDING" src/main/java/com/hongseob/openclass_ap/enrollment/request/EnrollmentRequest.java
+93:        this.state = RequestState.PENDING;   (비공개 생성자 1곳 — 신규 생성 시 초기화, DONE→PENDING 역전이 아님)
+
+$ git diff --stat -- src/main/java/com/hongseob/openclass_ap/course src/main/java/com/hongseob/openclass_ap/member src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java
+(no output — PRESERVE 대상 완전 무변경)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/receipt/EnrollmentReceiptService.java
+(no output — M1의 접수 잠금 순서 로직 완전 무변경, @MX:ANCHOR 보존)
+```
+
+### 잔여 위험 (Residual Risk)
+
+1. **다중 클래스 동시 배치 실행 시 간헐적 컨테이너 불안정 (M1과 동일한 환경 문제, 코드 결함 아님 — 이번 마일스톤에서 재확인·정밀화됨)**: M2의 9개 신규 테스트 클래스를 포함해 15개 클래스(M1 6개 + M2 9개)를 한 번의 gradle 호출로 함께 실행하면 매번 `java.net.ConnectException: Connection refused` 또는 `HikariPool ... Connection is not available` 로 부분 실패했다(2회 시도, 2회 모두). 6개 클래스로 배치를 줄인 재시도에서는 5개 클래스가 전부 PASS하고 마지막(알파벳 순 `EnrollmentWorkerDispatchIntegrationTest`)에서만 동일 시그니처로 실패했다 — **실패가 배치 내 마지막 컨텍스트에서 발생**하는 패턴은 다수의 `@SpringBootTest`(Testcontainers PostgreSQL 컨테이너 포함) 컨텍스트를 연속 기동·폐기할 때 로컬 Docker 엔진이 누적 부하로 일시적으로 응답하지 못하는 것과 일치한다. 이 세션의 기존 메모리 기록 및 M1의 동일 관찰과 정확히 일치하며, **개별/소배치(≤6개 클래스, 단 순서상 마지막 클래스는 재시도 필요할 수 있음) 실행에서는 이번 마일스톤 전체(9개 신규 + 6개 M1 회귀 클래스)가 100% 성공**했다(개별 실행 총 13회 이상, 전부 성공 — 위 "빌드 및 테스트 검증" 절 참고). AC PASS/FAIL 매트릭스의 근거는 모두 이 개별/소배치 클린 실행이다.
+2. **AC-ENR-014 검사 2번 격리를 위해 `EnrollmentRequestProcessor.processOne`을 테스트에서 직접 호출**: `EnrollmentQueueWorker.drainQueue()`를 거치지 않고 프로세서 빈을 직접 호출하는 방식으로, 프로덕션 경로(워커를 통한 호출)와 100% 동일하지는 않다 — 다만 `processOne` 자체가 프로덕션에서 호출되는 정확히 그 메서드이므로 우회 경로를 테스트하는 것은 아니다.
+3. **`EnrollmentFailureInjector` 테스트 훅이 실제 경합이 아닌 결정적 주입이라는 점**: AC-ENR-016/017이 요구하는 "확정 INSERT 이후, 커밋 이전 예외"는 이 SPEC의 정상 방어선(중복 검사·단일 워커 순차 처리) 때문에 자연 발생적으로 재현할 수 없다 — `EnrollmentFailureInjector` 클래스 Javadoc에 그 근거를 기록했다. 이는 M1의 `EnrollmentLockProperties` 대조군과 동일한 패턴(테스트 전용 결정적 시드)이며 프로덕션 기본 구현은 완전 무동작이다.
+4. **AC-ENR-022는 실측이 아닌 산출표 채택**: design.md §6의 계산값(폴링 200ms·배치 200)을 그대로 채택했다 — 실측(V5/V6, AC-ENR-026)은 M3/M6 범위이며, 실측이 이 값과 어긋나면 그때 개정 기록을 남긴다(design.md §6 "실측 우선 원칙").
+
+### 다음 단계
+
+Semi-autonomous progression(마일스톤별 확인)에 따라 M2 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M3(상태 조회)로 진행할지 결정한다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_

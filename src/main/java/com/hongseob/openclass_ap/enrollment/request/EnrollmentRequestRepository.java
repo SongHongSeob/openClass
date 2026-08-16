@@ -37,4 +37,13 @@ public interface EnrollmentRequestRepository extends JpaRepository<EnrollmentReq
     @Query(value = "SELECT * FROM enrollment_request WHERE id = :id AND state = 'PENDING' "
             + "FOR UPDATE SKIP LOCKED", nativeQuery = true)
     Optional<EnrollmentRequest> findPendingForUpdateSkipLocked(@Param("id") Long id);
+
+    /**
+     * REQ-WRK-007 중복 검사 2번 — 동일 회원이 동일 강좌에 대해 이 요청 자신을
+     * 제외한 미처리({@code PENDING}) 큐 요청을 이미 보유하는지 확인한다(M2).
+     * {@code idNot}으로 처리 중인 요청 자신의 행(아직 {@code PENDING}인 상태로
+     * 조회된다)을 제외해야 모든 요청이 자기 자신을 중복으로 오판하지 않는다.
+     */
+    boolean existsByMemberIdAndCourseIdAndStateAndIdNot(
+            Long memberId, Long courseId, RequestState state, Long idNot);
 }
