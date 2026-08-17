@@ -396,15 +396,26 @@ mode_selection: sub-agent (§G)
 | B4/B11 (AskUserQuestion 미사용) | **PASS** | `grep -rn "AskUserQuestion" frontend/src/admin/` → 0건 |
 | B1 (기존 역할 가드 재사용, 신규 판정 로직 없음) | **PASS** | `adminModel.ts`가 `guardLogic.ts`의 `evaluateRoleGuard`를 import해 그대로 소비 — `guardLogic.ts`/`guards.tsx` 자체는 이 마일스톤에서 무변경(`git status`로 확인) |
 
-**브라우저 수동 확인 — 미수행, 오케스트레이터 후속 필요**:
+**브라우저 수동 확인 — 완료 (오케스트레이터, `claude-in-chrome`)**:
 
-plan.md M5 완료 판정("관리자 계정에서 생성·수정·마감 완주 + 일반 계정에서 관리자 메뉴 미노출 확인")은 사람이 브라우저에서 직접 확인하는 절차이며, `REQ-NFR-007`에 따라 자동 테스트만으로 이 마일스톤을 완료로 선언할 수 없다. 이 절은 **코드 레벨 검증만 수행했고 브라우저 실관측은 아직 이루어지지 않았다** — `claude-in-chrome`을 사용한 관리자 계정(`admin@local.test`, M1이 이미 시딩) 생성·수정·마감 완주 + 일반 계정에서 관리자 메뉴 미노출 확인이 오케스트레이터 후속 작업으로 필요하다. M4와 달리 강좌 생성·수정·마감은 큐/워커에 의존하지 않으므로(REQ-ADM-006의 정원 증설 승격 확인만 예외) M4가 겪은 Testcontainers/원격 풀러 플레이키니스의 영향을 덜 받을 것으로 예상된다.
+M4와 달리 큐/워커에 의존하지 않아 예상대로 안정적으로 확인됐다. `admin@local.test`로 로그인 후:
+
+- **REQ-ADM-001 확인**: 로그인 직후 "역할: ADMIN" 표시 + "관리자" 메뉴 버튼 노출. 이후 `m4check@local.test`(MEMBER)로 재로그인 시 동일 화면에 관리자 버튼 **부재** — Capability gate가 실제로 역할에 반응함을 양방향으로 확인.
+- **REQ-ADM-002 확인**: MEMBER 세션에서 `/admin/courses`로 URL 직접 진입 → "이 화면에 접근할 권한이 없습니다." 전용 안내로 대체(카탈로그/세션 화면과 다른 별도 문구 — 단순 리다이렉트가 아니라 REQ-ADM-002가 요구하는 "권한 없음 안내"임을 확인).
+- **REQ-ADM-004 확인**: "강좌 생성" → 제목/설명/정원 3/시작·종료 일시 입력 후 저장 → 목록에 즉시 반영("M5 확인용 강좌 — 정원 3 · 확정 0 · OPEN"). (참고: `datetime-local` 세그먼트 입력 자동화가 브라우저 자동화 도구 특성상 키 입력으로 어긋나, `javascript_tool`로 네이티브 setter+`input`/`change` 이벤트를 발생시켜 우회했다 — 실제 사용자가 날짜 선택기로 올바르게 입력을 마쳤을 때와 동일한 DOM/React 상태이므로 검증 유효성에 영향 없음.)
+- **REQ-ADM-005 확인**: "수정" 클릭 → 폼에 제목·설명·정원·시작·종료 **전체 필드가 현재 값으로 미리 채워짐** 확인 → 정원만 3→8로 변경 후 저장 → 400 없이 200 성공(전 필드 재전송이 실제로 통했음을 실증).
+- **REQ-ADM-006 확인**: 정원 증설(3→8) 저장 직후 정확한 문구 렌더링 확인: "정원 증설은 대기자 승격을 유발할 수 있습니다. 승격 결과는 이 화면에 즉시 반영되지 않을 수 있으며, 잠시 후 다시 조회하면 확정 인원 증가를 확인할 수 있습니다."
+- **REQ-ADM-008/009 확인**: "마감" 클릭 → 목록에서 해당 강좌 상태가 즉시 `CLOSED`로 바뀌고 이후 "마감" 버튼이 사라짐(이미 마감된 강좌는 "수정"만 가능) → 버튼·안내 문구 어디에도 "삭제" 표현 없음.
+- **REQ-ADM-010 확인**: 관리자 목록에 표시된 강좌 항목이 공개 카탈로그(`GET /api/courses`)에서 본 것과 동일한 항목 — 별도 관리자 전용 조회 없음이 화면상으로도 일치.
+- **미확인(환경 제약, 코드는 커버됨)**: REQ-ADM-007(409 `CAPACITY_BELOW_ENROLLMENT`)은 이번 세션의 어떤 강좌도 실제 확정 인원(`enrolledCount`)이 0이라 정원 축소 거부를 실제로 유발하지 못했다(M4의 대기명단 재현 실패와 같은 근본 원인 — 확정 인원을 만들려면 수강신청이 실제로 성공해야 함). `classifyCourseFormError`의 409 분기는 단위 테스트로 커버되어 있다.
+- 확인 후 임시 프로세스 정리, 사용자의 기존 5173 프로젝트에는 영향 없음.
 
 **잔여 위험 (Residual Risk)**:
 
-- AC-FE-088(정원 증설 후 재조회 시 확정 인원 증가 관측)은 백엔드 `CAPACITY_INCREASE` 워커의 비동기 처리에 의존하므로, 브라우저 수동 확인 시 즉시 반영되지 않을 수 있다(REQ-ADM-006이 명시한 바로 그 특성) — 확인 시 "잠시 후 재조회" 절차가 필요함을 유의해야 한다.
-- `AdminCourseFormPage.tsx`의 정원 입력은 `<input type="number" min={1}>` + `Number(event.target.value)`로 변환한다. 빈 문자열 입력 시 `Number('')===0`이 되어 `min={1}` 브라우저 검증에 걸리지만, 이 경계 케이스는 자동 테스트로 검증하지 않았다(plan.md §D.1에 따라 화면 렌더링 테스트는 필수 범위 아님).
-- `startsAt`/`endsAt`은 `<input type="datetime-local">`(초 없는 `YYYY-MM-DDTHH:mm`)을 그대로 전송한다. 백엔드 `LocalDateTime` 역직렬화(Jackson `jackson-datatype-jsr310`)가 초 생략을 허용함을 `ISO_LOCAL_DATE_TIME` 포맷 규격으로 확인했으나, 실제 요청으로 직접 검증하지는 않았다 — 위 브라우저 수동 확인에서 함께 확인 필요.
+- AC-FE-088(정원 증설 후 재조회 시 확정 인원 증가 관측)은 백엔드 `CAPACITY_INCREASE` 워커의 비동기 처리에 의존하며, 이번 확인에서는 확정 인원이 0인 강좌에서 시도해 승격 자체가 발생하지 않았다(대기자가 없으므로) — 문구 노출까지만 확인, 실제 승격 반영까지는 미확인.
+- REQ-ADM-007(409 처리)은 위와 같은 이유로 실제 브라우저 트리거를 하지 못했다 — 코드·단위 테스트만 근거.
+- `AdminCourseFormPage.tsx`의 정원 입력 `Number('')===0` 경계 케이스는 여전히 브라우저로 검증하지 않음.
+- `startsAt`/`endsAt`의 `datetime-local`(초 없는 `YYYY-MM-DDTHH:mm`) 전송은 이번 확인에서 실제 `POST`/`PATCH` 요청으로 검증됐다(생성·수정 둘 다 200/201 성공) — 이 항목은 잔여 위험에서 제외한다.
 
 **작업 트리 범위**: `frontend/src/admin/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. `frontend/src/routing/guardLogic.ts`·`guards.tsx`·`frontend/src/api/errors.ts`는 무변경(기존 로직 재사용만, 확장 불필요 — 위 AC-FE-089 근거란 참고). 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경.
 
