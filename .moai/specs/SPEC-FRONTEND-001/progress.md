@@ -3,10 +3,10 @@
 | 항목 | 값 |
 |---|---|
 | SPEC ID | `SPEC-FRONTEND-001` |
-| 상태 | `draft` |
+| 상태 | `in-progress` |
 | 버전 | `0.2.2` |
 | Tier | L |
-| 현재 단계 | plan (감사 3회차 FAIL 0.83 → 지적 사항 M1~M4 반영 완료, 델타 범위 재감사 대기) |
+| 현재 단계 | run — M1 완료 (워크스페이스 부트스트랩 + 공통 기반). M2 착수 대기 |
 
 ---
 
@@ -162,9 +162,45 @@ depends_on_preflight: PASS (SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001 
 
 ---
 
+## Implementation Kickoff Approval
+
+`AskUserQuestion`을 통해 오케스트레이터가 직접 확인: (1) 계획대로 착수 승인 — "네, 시작해주세요" 선택. (2) 진행 방식 — **semi-autonomous(마일스톤마다 확인받기)** 선택. Route B(Tier L) 규약에 따라 `feat/SPEC-FRONTEND-001` 브랜치를 생성했다(main 직접 수정 아님, 추후 PR로 병합).
+
+```yaml
+kickoff_approval: obtained
+progression_mode: semi-autonomous
+branch: feat/SPEC-FRONTEND-001
+mode_selection: sub-agent (§G)
+```
+
 ## §E.2 Run-phase Evidence
 
-_<pending run-phase>_
+### M1 — 워크스페이스 부트스트랩 및 공통 기반
+
+**대상 요구사항**: `REQ-NFR-001`·`003`·`004`·`005`, `REQ-ERR-001`~`006`
+
+**산출물**: `frontend/` 신규 스캐폴딩 (Vite 8 + React 19 + TypeScript 6, `npm create vite@latest -- --template react-ts` 기반). `src/api/types.ts`(§A.1 타입 단일 선언) · `src/api/errors.ts`(§A.3/§C.2 오류 정규화 단일 지점) · `src/api/client.ts`(fetch 래퍼) · `src/App.tsx`(M1 확인용 화면 — GET /api/courses 육안 확인) · `vite.config.ts`(포트 5173 고정, `strictPort`, 프록시 없음) · `.env.example`/`.env.local`(REQ-NFR-003 환경 변수 주입).
+
+| AC / 항목 | 판정 | 근거 |
+|---|---|---|
+| E1 (`tsc --noEmit`) | **PASS** | `npx tsc -b --force` exit=0 (프로젝트 참조 방식, 두 프로젝트 모두 `noEmit: true`) |
+| E2 (lint) | **PASS** | `npm run lint`(oxlint) exit=0, 출력 없음 |
+| E3 (단위 테스트) | **PASS** | `npx vitest run` exit=0 — 3개 파일 24건 전부 통과. 오류 정규화 판정 순서(401-before-code-field) 테스트 및 타입 관용성(type-tolerance) 테스트 포함 |
+| E4 (프로덕션 빌드) | **PASS** | `npm run build`(`tsc -b && vite build`) exit=0 |
+| E11 (`server.proxy` grep) | **PASS** | `grep -c server.proxy vite.config.ts` → `0` |
+| AC-FE-003 (하드코딩 URL 리터럴 0건) | **PASS** | `grep -rn "http://\|https://" src/` → 0건. `.env.example`/`.env.local`(설정 파일)에만 존재 |
+| AC-FE-005a/005b/006/007/009/010 | **PASS** | `errors.test.ts` 10건 전부 통과 — F1/F2/F3 판정, 401-우선 판정, 네트워크/서버 오류 구별, 원문 미노출, 미지 바디 무예외 |
+| REQ-ENR-009 타입 관용성 | **PASS** | `types.test.ts` — `EnrollmentStatus`/`CourseStatus`에 미지 문자열 리터럴 대입이 컴파일된다(닫힌 유니온으로 회귀 시 `tsc`가 실패하는 회귀 가드) |
+
+**E10 / AC-FE-901 (CORS 실동작, 프록시 미사용) — 부분 검증, 잔여 갭 있음**:
+
+- 백엔드(`./gradlew bootRun`, `ADMIN_EMAIL`/`ADMIN_PASSWORD` 임시 로컬 값)를 기동하고 `curl`로 확인:
+  - `OPTIONS /api/courses` (Origin: `http://localhost:5173`, preflight) → **200**, `Access-Control-Allow-Origin: http://localhost:5173`, `Access-Control-Allow-Methods`에 GET 포함, `Access-Control-Allow-Headers: Authorization`
+  - `GET /api/courses` (Origin 헤더 포함) → **200**, `Access-Control-Allow-Origin` 정상 반영, `Access-Control-Allow-Credentials` 헤더 부재(`allowCredentials=false`와 일치)
+- **갭 (미검증)**: 이 세션은 CLI 전용 환경이며 브라우저 자동화 도구가 없다. 또한 로컬 머신의 포트 5173은 이 작업과 무관한 다른 프로젝트(`wedding_project`)의 Vite 개발 서버가 이미 점유하고 있어(활성 Chrome 탭 연결 확인됨), 실제 5173에서 프론트엔드를 띄워 확인할 수 없었다 — `strictPort: true` 설정에 따라 다른 포트로 자동 이동하지 않고 즉시 실패하는 것을 확인했다(design.md §B.1 의도대로 동작). 따라서 REQ-NFR-007/D8이 요구하는 "사람이 브라우저에서 직접 확인"은 **미수행**이다. HTTP 프로토콜 계층(서버가 보내는 CORS 헤더)은 `curl`로 exhaustively 확인했으나, 이는 브라우저 콘솔의 실제 CORS 오류 0건 관측을 대체하지 않는다.
+- **후속 조치 필요**: 포트 5173이 비어 있는 상태에서 `cd frontend && npm run dev`로 개발 서버를 띄우고, 백엔드를 `ADMIN_EMAIL`/`ADMIN_PASSWORD` 환경 변수와 함께 `./gradlew bootRun`으로 기동한 뒤, 브라우저에서 `http://localhost:5173`을 열어 강좌 목록이 표시되고 콘솔에 CORS 오류가 없는지 사람이 직접 확인해야 한다(S13/AC-FE-901).
+
+**M1 완료 판정 (plan.md 기준)**: E1~E4 통과 + 오류 정규화 단위 테스트 통과는 **충족**. "브라우저에서 GET /api/courses가 프록시 없이 교차 오리진으로 성공"의 **사람에 의한 직접 관측**은 위 갭으로 인해 **미충족** — PASS-WITH-DEBT로 기록하며, 위 후속 조치가 완료되어야 M1이 온전히 종결된다.
 
 ---
 
