@@ -1,7 +1,7 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — 진행 기록"
-version: "0.2.2"
+version: "0.3.0"
 status: in-progress
 created: 2026-08-15
 updated: 2026-08-17
@@ -21,7 +21,9 @@ tier: L
 - `plan_status`: audit-ready — **plan-auditor 2회차 PASS (0.92 / Tier L 임계 0.85)**, must-pass 실패·치명·중대 0건. 후속 경미 지적 6건(N1~N6)은 v0.2.2에서 전건 해소
 - 산출물: `spec.md`, `plan.md`, `acceptance.md`, `design.md`, `research.md`, `progress.md` — **Tier L 필수 5종 전부 + 진행 기록**, status: draft
 - Tier 판정: **L** (예상 16~18 프로덕션 파일 + 10~12 테스트 파일, 동시성 모델이 프로젝트 전체에 헌법적 영향)
-- 요구사항 **53건** + 불변식 **9건** = **62건**, 인수 기준 **53건**, 미대응 0건 (acceptance.md §D.2 — 매트릭스 62행 실측)
+- 요구사항 **59건** + 불변식 **10건** = **69건**, 인수 기준 **58건**, 미대응 0건 (acceptance.md §D.2 — 매트릭스 69행)
+
+  > **v0.3.0 제자리 개정 반영값이다.** v0.2.2(= M1~M6 run 범위)에서는 요구사항 53 + 불변식 9 = 62, 인수 기준 53이었다. 아래 §E.3의 `ac_scope: AC-ENR-001..AC-ENR-053` · `ac_pass_count: 53` · `requirements_scope ... (53건)`은 **그 시점의 기록으로 정확하며 수정 대상이 아니다** — 신설분(REQ-LST-001~006 / INV-ENR-010 / AC-ENR-054~058)은 M7 미구현 상태이므로 run 증거에 포함될 수 없다. 개정 배경은 spec.md `## Amendments`, plan.md §A.3 참조.
 
   > 이 줄은 v0.2.1까지 "요구사항 49건 + 불변식 8건 = 57건, 인수 기준 49건 … 기계 검증 완료"로 남아 있었다. 2차 감사(E1·E2) 반영으로 요구사항 4건·불변식 1건·AC 4건이 추가된 뒤 갱신되지 않은 값이며, **틀린 숫자에 "기계 검증 완료"가 붙어 있던 것**이므로 단순 노후화가 아니라 검증 무결성 문제였다 (2회차 감사 지적 N3). v0.2.2에서 acceptance.md §D.2 매트릭스를 다시 세어 정정했다.
 - 미해소 클래리피케이션 마커: **0건** (SPEC 3분할 / 인증 JWT / 프론트엔드 백엔드 우선 — 모두 사용자 결정으로 확정)
@@ -58,6 +60,20 @@ tier: L
 ### 다음 단계
 
 Implementation Kickoff Approval → run (M1부터). 선행 `SPEC-AUTH-001`·`SPEC-COURSE-001`의 `completed` 확인이 진입 조건이다.
+
+### v0.3.0 제자리 개정 (amendment) — `DEP-2` 계약 폐쇄 / M7 plan-phase signal
+
+- `plan_status`: audit-ready (개정분) — **plan-auditor 미실행.** 이 개정은 M1~M6 설계를 변경하지 않고 읽기 전용 조회만 추가하므로 전면 재감사를 전제하지 않는다. 다만 `spec.md`가 수정되어 **plan-artifact hash가 변경**되었으므로, `.claude/rules/moai/workflow/spec-workflow.md` § Phase 1 Plan Audit Gate의 skip 조건 3(artifact-hash unchanged)이 깨졌다 — **다음 `/moai run` 진입 시 Phase 1 plan-audit이 재실행된다.** 이는 정상 동작이며 우회 대상이 아니다.
+- 상태 전이: `completed → in-progress` (spec.md frontmatter). `amendment_of: SPEC-ENROLLMENT-001`(자기 참조) 선언. 직전 완료 SHA: `2148d05084560950dc73642a8bca1ec3f9670df9`
+- 개정 산출물: `spec.md`(§A.6·§B.8·INV-ENR-010·§D·§E 추가), `plan.md`(§A.3·§C.8·§F M7·§G 추가), `acceptance.md`(AC-ENR-054~058·매트릭스 7행 추가), `progress.md`(이 절), `design.md`(§8 API 계약 표 2행 추가)
+- 신설: 요구사항 **6건**(REQ-LST-001 ~ 006) + 불변식 **1건**(INV-ENR-010) + 인수 기준 **5건**(AC-ENR-054 ~ 058)
+- 기존 항목 변경: **0건** — REQ·INV·AC 어느 것도 수정·삭제하지 않았다. 문서 사실 정정 3건(`SPEC-FRONTEND-001` "아직 생성하지 않음" → "계획 단계 진행 중", spec.md §D / plan.md §B / plan.md §C.7)만 별도로 반영했다
+- 미해소 클래리피케이션 마커: **0건**
+- **잔여 검증 부채**: AC-ENR-054 ~ 058은 **전건 미검증(M7 미구현)**. §E.2 / §E.3의 run 증거는 M1~M6(AC-ENR-001 ~ 053) 범위이며 이 개정으로 무효화되지 않는다. M7 구현 후 그 증거는 manager-develop이 §E.2 / §E.3에 기록한다 — 이 절(§E.1)은 plan-phase 신호만 담는다.
+
+### 다음 단계 (개정분)
+
+Implementation Kickoff Approval → run (M7). 진입 시 Phase 1 plan-audit이 hash 변경으로 재실행된다.
 
 ## §F Phase 4 Mode Selection
 

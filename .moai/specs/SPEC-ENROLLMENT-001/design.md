@@ -1,10 +1,10 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 — 설계"
-version: "0.1.2"
+version: "0.1.3"
 status: draft
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-17
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -288,6 +288,10 @@ com.hongseob.openclass_ap
 | GET | `/api/enrollment-requests/{requestId}` | 인증 + **본인** | 클라이언트 노출 상태 + 대기 순번 |
 | DELETE | `/api/enrollments/{enrollmentId}` | 인증 + **본인** | 202 + `CANCEL` 요청 식별자 |
 | DELETE | `/api/waitlist-entries/{entryId}` | 인증 + **본인** | 200 (큐 미경유 — `enrolled_count` 불변) |
+| GET | `/api/enrollments/mine` | 인증 (**입력 없음 — 본인 범위 구조적 한정**) | 200 + 본인 활성 확정 목록(`enrollmentId` 포함), 빈 목록 허용 |
+| GET | `/api/waitlist-entries/mine` | 인증 (**입력 없음 — 본인 범위 구조적 한정**) | 200 + 본인 활성 대기 목록(`waitlistEntryId`·`position` 포함), 빈 목록 허용 |
+
+> **아래 2행은 v0.3.0 제자리 개정(M7)으로 추가되었다.** 이 표는 이 SPEC의 API 계약 전체를 나타내므로, 추가하지 않으면 표가 계약을 불완전하게 기술하게 된다. 규범적 정의(응답 필드·정렬·활성 한정·소유권 구조적 한정)는 spec.md §A.6에 있고 설계 근거는 plan.md §C.8에 있다 — 여기서는 계약 표만 맞춘다. 개정 배경은 spec.md `## Amendments`(`DEP-2`) 참조. 나머지 절(§1~§7·§9)은 이 개정으로 바뀌지 않았다.
 
 **대기 취소가 큐를 경유하지 않는 이유**: 대기명단 항목의 취소는 `enrolled_count`를 건드리지 않는다. 큐를 경유해야 하는 것은 **정원 카운터를 바꾸는 작업뿐**이며, 불필요하게 큐를 태우면 지연만 늘어난다.
 
