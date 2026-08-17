@@ -1,7 +1,7 @@
 ---
 id: SPEC-FRONTEND-001
 title: "React 클라이언트 — 회원·강좌·수강신청 전 화면 및 관리자 콘솔"
-version: "0.2.1"
+version: "0.2.2"
 status: draft
 created: 2026-08-17
 updated: 2026-08-17
@@ -24,6 +24,7 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]
 | 0.1.0 | 2026-08-17 | manager-spec | 최초 작성 (draft). 백엔드 3개 SPEC(AUTH/COURSE/ENROLLMENT)이 노출한 12개 엔드포인트를 소비하는 React 클라이언트 전 범위. 프론트엔드 워크스페이스 위치를 **저장소 내 `frontend/`** 로 확정(`tech.md`·`structure.md`의 "미결정" 해소). 백엔드 선행 의존성 2건(CORS 미설정, 취소 대상 식별자 미노출)을 차단 요소로 식별 |
 | 0.2.0 | 2026-08-17 | manager-spec | **plan-audit 1회차(FAIL 0.75) 지적 사항 반영 — 사실 재기준화(re-baseline).** 0.1.0 작성 이후 백엔드가 두 차단 의존성을 모두 닫았고, 그 결과 0.1.0의 사실 진술 다수가 낡았다. (1) **`DEP-1` 해소** — `main` 커밋 `29a1560`이 `SecurityConfig`에 CORS를 설정했다. (2) **`DEP-2` 해소** — `SPEC-ENROLLMENT-001` v0.3.0 제자리 개정(M7)이 조회 엔드포인트 2종을 추가했다. 경로·필드명이 0.1.0의 **제안과 다르므로**(`/api/enrollments/mine`·`/api/waitlist-entries/mine`, `waitlistEntryId`) §A.4·§B.4를 실제 계약에 맞춰 정정. (3) 엔드포인트 전수 **12개 → 14개**. (4) `REQ-ENR-004` 종단 판정을 화이트리스트 → **`PENDING`의 여집합**으로 정정 (`plan.md` AP-3·`design.md` §A.2와의 자기모순 해소). (5) `REQ-CNL-006`~`009` 신설(목록 조회·빈 목록·정렬 계약), `REQ-ENR-007`·`010` 문구 정정 |
 | 0.2.1 | 2026-08-17 | manager-spec | plan-audit 2회차(PASS 0.89) 지적 사항 N1~N8 반영 — N1(대기명단 순서 오기술 정정)·N2(main 검증 범위 오기술 정정)이 major, 나머지 6건은 minor(상호참조·표기 정정). AC 총계 84→85(N5, AC-FE-073 분할) |
+| 0.2.2 | 2026-08-17 | manager-spec | plan-audit 3회차(FAIL 0.83, exogenous regression) 지적 사항 M1~M4 반영 — M1(critical: `DEP-3`가 실제로는 이미 해소됐는데 문서가 반영 못함, PR #1 병합 `21eab8a` 기준으로 정정)·M2(major: N1이 도입한 규범을 정식 REQ/AC/INV로 승격)·M3~M4(minor: DoD 체크리스트 누락 S14 추가, 부록 번호 정렬). REQ 총계 58→59(`REQ-CNL-010` 신설), 불변식 10→11(`INV-FE-011` 신설), AC 총계 85→86(`AC-FE-112` 신설) |
 
 ---
 
@@ -70,11 +71,21 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]
 
 이 SPEC이 소비하는 엔드포인트는 아래 14개가 **전부**이며, 이 목록에 없는 엔드포인트는 존재하지 않는다. 이 표는 선행 3개 SPEC의 구현 산출물(소스 파일)에서 직접 확인한 것이다.
 
-**확인 기준점(staleness 탐지용)**: 두 기준점으로 나뉜다 — **1~4·9~12번은 `main` HEAD(커밋 `29a1560`)**, **5~8·13~14번은 `sync/SPEC-ENROLLMENT-001` HEAD(PR #1, 커밋 `871d247`)**에서 컨트롤러 매핑 애너테이션과 응답 레코드를 읽어 확인했다.
+**확인 기준점(staleness 탐지용)**: **단일 기준점이다 — `main` HEAD(커밋 `21eab8a`, 또는 그 이후의 최신 `main` HEAD)에서 14개 엔드포인트 전부를 확인할 수 있다.** 컨트롤러 매핑 애너테이션과 응답 레코드를 그 트리에서 직접 읽어 확인했다.
 
-두 기준점으로 나뉘는 이유: `SPEC-ENROLLMENT-001`의 구현(`enrollment`·`waitlist` 패키지)이 아직 `main`에 병합되지 않았다(`DEP-3`, §A.5). `main` HEAD에 존재하는 컨트롤러는 `CourseController`·`CourseAdminController`·`AuthController` **3개뿐**이므로, 5~8·13·14번(수강신청 접수·상태 조회·취소 2종·목록 2종)은 `main`에서 확인할 수 없다. `research.md` §1이 같은 사실을 기록한다.
+**0.2.1의 두 기준점 방식은 폐기되었다.** 0.2.1은 5~8·13~14번을 `main`에서 확인할 수 없다는 이유로 `sync/SPEC-ENROLLMENT-001` 브랜치를 두 번째 기준점으로 두었으나, **PR #1이 `main`에 병합되어(병합 커밋 `21eab8a`, 병합 시각 `2026-08-17T09:04:24Z`) 그 전제가 소멸했다.** `main`의 컨트롤러는 이제 `CourseController`·`CourseAdminController`·`AuthController`·`EnrollmentController`·`WaitlistController` **5개**이며, 14개 엔드포인트가 전부 단일 트리에서 관측된다(`DEP-3` 해소, §A.5).
 
-0.1.0이 "12개가 전부"라고 단정한 뒤 백엔드가 2개를 추가하여 그 단정이 무너졌으므로, 이후 개정도 **prose가 아니라 소스를 다시 읽어** 이 표를 갱신한다. 위 두 SHA가 그 재확인의 출발점이다.
+이 표의 사실 진술은 **세 차례 연속으로 낡았다**(0.1.0의 "12개가 전부", 0.2.0의 `main` 검증 범위, 0.2.1의 두 기준점). 원인은 공통이다 — 움직이는 의존성의 **한 시점 스냅샷**을 prose로 고정했기 때문이다. 따라서 이후 개정자는 SHA를 신뢰하지 말고 **아래 명령을 실제로 실행하여** 이 표를 재확인한다. 명령은 의존성이 움직여도 살아남는다:
+
+```bash
+# (1) 선행 의존성 상태 — completed 여야 depends_on 사전 점검이 통과한다
+grep '^status:' .moai/specs/SPEC-ENROLLMENT-001/spec.md
+
+# (2) 현재 main 트리의 엔드포인트 전수 — 아래 표 14행과 대조한다
+for f in $(git ls-tree -r --name-only main -- src/main/java | grep -i Controller); do
+  echo "== $f"; git show "main:$f" | grep -nE '@(Get|Post|Put|Patch|Delete)Mapping|@RequestMapping'
+done
+```
 
 | # | 메서드 · 경로 | 인가 | 성공 응답 | 응답 바디 |
 |---|---|---|---|---|
@@ -101,19 +112,19 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]
 - **10번은 부분 갱신이 아니다.** 메서드는 `PATCH`이지만 `CourseUpdateRequest`의 `title`·`capacity`·`startsAt`·`endsAt`가 모두 필수(`@NotNull`/`@NotBlank`)이므로, 화면은 **현재 값 전체를 실어 보내야** 한다. 변경 필드만 보내면 400이 반환된다.
 - **13·14번은 보유 내역이 0건일 때 404가 아니라 `200` + 빈 배열 `[]`을 반환한다.** 백엔드 `REQ-LST-001`·`REQ-LST-002`가 이를 명시적으로 규정한다. 화면이 빈 배열을 오류로 해석하면, 아직 아무것도 신청하지 않은 **모든 신규 회원에게 오류 화면이 표시된다.**
 - **13·14번의 정렬은 백엔드가 정한다.** 13번은 `enrollmentId` 오름차순, 14번은 `position` 오름차순이다(`EnrollmentListQueryService.listMine`·`WaitlistService.listMine`의 리포지토리 메서드로 확인). 화면은 이 순서를 그대로 표시하며 자체 재정렬하지 않는다. 다만 **14번의 `position`은 강좌 단위 순번**이므로(아래 항목), 이 정렬은 결정적 표시 순서일 뿐 강좌를 가로지르는 어떤 의미도 갖지 않는다.
-- **14번의 `position`은 해당 항목이 속한 강좌 안에서의 순번이며, 회원의 전체 대기 현황을 가로지르는 순번이 아니다.** 백엔드 `WaitlistEntryRepository.nextPosition`이 `WHERE w.courseId = :courseId`로 강좌별 최댓값 + 1을 계산하고, 부분 유니크 인덱스도 `(course_id, position) WHERE status='WAITING'`으로 강좌 단위다. 즉 한 회원이 강좌 A에서 1번, 강좌 B에서 2번을 갖는 것은 정상이며, 이는 **A가 B보다 먼저 승격된다는 뜻이 아니다** — 두 대기열은 각 강좌의 정원 변동에 따라 독립적으로 진행한다. 따라서 화면은 `position`을 반드시 `courseTitle`과 나란히 표시하고, 목록 전역의 순위처럼 보이게 표시해서는 **안 된다**.
+- **14번의 `position`은 해당 항목이 속한 강좌 안에서의 순번이며, 회원의 전체 대기 현황을 가로지르는 순번이 아니다.** 백엔드 `WaitlistEntryRepository.nextPosition`이 `WHERE w.courseId = :courseId`로 강좌별 최댓값 + 1을 계산하고, 부분 유니크 인덱스도 `(course_id, position) WHERE status='WAITING'`으로 강좌 단위다. 즉 한 회원이 강좌 A에서 1번, 강좌 B에서 2번을 갖는 것은 정상이며, 이는 **A가 B보다 먼저 승격된다는 뜻이 아니다** — 두 대기열은 각 강좌의 정원 변동에 따라 독립적으로 진행한다. 이 사실이 화면 표시에 부과하는 의무는 **`REQ-CNL-010`**(및 INV-FE-011)이 규범으로 고정한다 — `position`은 반드시 `courseTitle`과 나란히 표시하고, 목록 전역의 순위처럼 보이게 표시하지 않는다.
 - **14번의 취소 식별자는 `waitlistEntryId`이며 `position`이 아니다.** 두 값 모두 `Long`이므로 타입 검사가 혼동을 잡아 주지 못한다. `position`을 8번(`DELETE /api/waitlist-entries/{entryId}`)에 넣으면 **엉뚱한 행을 지목**하며, 그 행이 타인 소유이면 403/404가, 본인 소유이면 **의도하지 않은 항목이 취소**된다. 백엔드 `REQ-LST-006`이 "목록이 반환한 식별자 = 취소 API가 받는 식별자"를 종결 조건으로 못박은 이유다.
 - **13·14번은 회원 식별자를 입력받지 않는다.** 반환 범위는 오직 인증 주체에서 유도되므로(`REQ-LST-003`), 화면이 회원 식별자를 질의 파라미터로 붙일 여지가 없다.
 
-### A.5 백엔드 선행 의존성 — 상태 (0.2.0에서 재기준화)
+### A.5 백엔드 선행 의존성 — 상태 (0.2.2에서 재기준화)
 
-이 SPEC은 백엔드 소스를 수정하지 않는다. 0.1.0은 백엔드 변경 없이는 원리적으로 구현 불가한 2건(`DEP-1`·`DEP-2`)을 차단 의존성으로 기록했다. **두 건 모두 0.1.0 작성 이후 백엔드가 닫았다.** 아래는 그 해소 사실과, 해소로 인해 이 SPEC이 새로 짊어지는 제약을 기록한다.
+이 SPEC은 백엔드 소스를 수정하지 않는다. 0.1.0은 백엔드 변경 없이는 원리적으로 구현 불가한 2건(`DEP-1`·`DEP-2`)을 차단 의존성으로 기록했고, 0.2.0은 남은 1건(`DEP-3`)을 진입 게이트로 식별했다. **세 건 모두 해소되었다 — 이 SPEC에 남은 외부 차단 요소는 없다.** 아래는 그 해소 사실과, 해소로 인해 이 SPEC이 새로 짊어지는 제약을 기록한다.
 
 | ID | 0.1.0 시점 | 현재 | 해소 근거 |
 |---|---|---|---|
 | `DEP-1` (CORS 미설정) | 미해소 — 전 범위 차단 | **해소됨** | `main` 커밋 `29a1560` "fix(security): CORS 설정 추가" |
 | `DEP-2` (취소 대상 식별자 미노출) | 미해소 — 취소 2개 화면 차단 | **해소됨** | `SPEC-ENROLLMENT-001` v0.3.0 제자리 개정 M7 (`sync/SPEC-ENROLLMENT-001`, PR #1) |
-| `DEP-3` (선행 PR 미병합) | 시간이 해소 | **미해소 — 유일하게 남은 차단 요소** | `plan.md` §B.3 |
+| `DEP-3` (선행 PR 미병합) | 시간이 해소 | **해소됨** | PR #1 병합 — 병합 커밋 `21eab8a`, 병합 시각 `2026-08-17T09:04:24Z`. `SPEC-ENROLLMENT-001`이 `main`에서 `status: completed` |
 
 #### DEP-1 — CORS (해소됨)
 
@@ -148,6 +159,20 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]
 접미사 형태를 택한 것은 백엔드의 의도된 결정이다 — 취소 경로(`/api/enrollments/{id}`·`/api/waitlist-entries/{id}`)와 접두사를 일치시켜 같은 리소스 계열임을 드러낸다. **이 SPEC은 실제 구현을 따르며, 0.1.0의 제안 경로는 폐기한다 — 그 경로는 존재하지 않으며 호출하면 404다.**
 
 §B.4가 이 계약을 요구사항으로 고정한다.
+
+#### DEP-3 — 선행 PR 병합 (해소됨)
+
+0.2.0·0.2.1은 `DEP-3`(PR #1 미병합)를 **run 단계 진입 자체를 막는 유일한 차단 요소**로 기록했다. **그 진술은 더 이상 사실이 아니다.**
+
+| 확인 항목 | 관측값 |
+|---|---|
+| PR #1 상태 | `MERGED` — 병합 커밋 `21eab8a`, 병합 시각 `2026-08-17T09:04:24Z` |
+| `SPEC-ENROLLMENT-001` 프론트매터 | `main`에서 `status: completed` |
+| `main` 트리 컨트롤러 | 5개 (`EnrollmentController`·`WaitlistController` 포함) |
+
+따라서 `depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]` 사전 점검은 **세 의존성 전부에 대해 통과한다.** `--ignore-deps` 우회 경로는 **더 이상 도달 가능하지 않으며 사용해서는 안 된다** — 충족된 의존성을 미충족으로 기록하는 감사 로그를 만들게 되기 때문이다(`plan.md` §B.3, `acceptance.md` AC-FE-907).
+
+> 이 정정이 필요했던 이유를 기록해 둔다: PR #1은 v0.2.1 문서 커밋보다 **먼저** 병합되었으나, 0.2.1은 그 사실을 관측하지 않고 이전 판정을 그대로 옮겼다. 의존성 상태는 prose로 복사하지 말고 §A.4의 재확인 명령으로 매번 실측한다.
 
 ### A.6 백엔드 오류 응답 형태 — 3종이며 단일하지 않다
 
@@ -227,7 +252,7 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]
 
 ### B.4 취소 (CNL)
 
-> **`DEP-2`는 해소되었다(§A.5).** 백엔드가 §A.4의 13·14번 조회 엔드포인트로 `enrollmentId`·`waitlistEntryId`를 노출하므로 이 절은 **구현 가능하며 검증 가능하다.** 0.1.0에서 이 절에 걸려 있던 차단 표기는 제거되었다. 남은 조건은 `DEP-3`(선행 PR 병합)이며, 이는 이 절만의 조건이 아니라 §A.4의 5~8·13·14번을 쓰는 **모든 절에 공통**이다(`plan.md` §B.3).
+> **`DEP-2`는 해소되었다(§A.5).** 백엔드가 §A.4의 13·14번 조회 엔드포인트로 `enrollmentId`·`waitlistEntryId`를 노출하므로 이 절은 **구현 가능하며 검증 가능하다.** 0.1.0에서 이 절에 걸려 있던 차단 표기는 제거되었다. **`DEP-3`(선행 PR 병합)도 해소되었으므로(§A.5) 이 절에 남은 외부 조건은 없다.**
 
 - **REQ-CNL-001** (Event-driven) — **When** 인증된 회원이 자신의 확정 수강신청 취소를 실행하면, 클라이언트는 `DELETE /api/enrollments/{enrollmentId}`를 호출하고 응답의 요청 식별자로 폴링을 개시 **shall**한다. 이때 사용하는 `enrollmentId`는 `GET /api/enrollments/mine` 응답의 `enrollmentId` 필드에서만 유래 **shall**한다.
 - **REQ-CNL-002** (Ubiquitous) — 취소 응답(202) 직후의 화면 표시는 확정된 취소 완료를 뜻하는 표현을 사용 **shall not**한다 (REQ-ENR-002와 동일한 근거 — 취소도 큐를 경유한다).
@@ -250,10 +275,13 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]
 
   > 근거: 백엔드가 확정 목록은 `enrollmentId` 오름차순, 대기 목록은 `position` 오름차순으로 반환한다(§A.4). 이 순서는 **결정적(deterministic)** 이며, 클라이언트가 재정렬하면 화면에 보이는 순서가 응답의 순서와 어긋나 AC-FE-110(응답 순서와 표시 순서의 대조)이 검증하려는 대상 자체가 사라진다. 순서 재구성은 이득이 없고 검증 가능성만 잃는다.
 
-  > **`position`에 관한 주의 (이 요구사항이 함의하지 **않는** 것)**: 대기 목록의 `position`은 **그 항목이 속한 강좌 안에서의 순번**이며(§A.4 — 백엔드가 `nextPosition`을 강좌별로 계산하고 부분 유니크 인덱스도 `(course_id, position)`이다), 회원의 전체 대기 현황을 가로지르는 순번이 아니다. 여러 강좌에 대기 중인 회원의 목록을 `position` 오름차순으로 늘어놓아도 그것은 **승격 예정 순서가 아니다** — 각 강좌의 대기열은 그 강좌의 정원 변동에 따라 독립적으로 진행한다. 따라서 화면은 `position`을 반드시 `courseTitle`과 나란히 렌더링 **shall**하며, 목록 전역의 대기 순위처럼 보이는 표현을 사용 **shall not**한다. 이를 어기면 INV-FE-004 계열의 결함(화면이 사실이 아닌 것을 사용자에게 말함)이 된다.
+  > **`position`에 관한 주의 (이 요구사항이 함의하지 **않는** 것)**: 대기 목록의 `position`은 **그 항목이 속한 강좌 안에서의 순번**이며(§A.4 — 백엔드가 `nextPosition`을 강좌별로 계산하고 부분 유니크 인덱스도 `(course_id, position)`이다), 회원의 전체 대기 현황을 가로지르는 순번이 아니다. 여러 강좌에 대기 중인 회원의 목록을 `position` 오름차순으로 늘어놓아도 그것은 **승격 예정 순서가 아니다** — 각 강좌의 대기열은 그 강좌의 정원 변동에 따라 독립적으로 진행한다. 이 사실이 화면 표시에 부과하는 의무는 **`REQ-CNL-010`이 규범으로 고정한다**(이 주석은 그 근거 설명이며, 규범 자체가 아니다).
 - **REQ-CNL-009** (Ubiquitous) — 취소가 성공한 뒤 클라이언트가 표시하는 목록은 해당 조회 API를 **재호출하여 얻은 결과** **shall**이며, 클라이언트가 보유하던 이전 목록에서 항목을 임의로 제거한 결과를 표시 **shall not**한다.
 
   > 근거: 확정 취소는 큐를 경유하므로(REQ-CNL-001) 202 시점에 아직 취소가 확정되지 않았다. 클라이언트가 목록에서 항목을 먼저 지우면 INV-FE-001(202를 확정으로 표시하지 않음)을 목록 화면에서 우회하게 된다.
+- **REQ-CNL-010** (Ubiquitous) — 클라이언트는 대기 목록의 각 항목에서 `position`을 해당 항목의 `courseTitle`과 나란히 표시 **shall**하며, `position`을 목록 전역의 대기 순위·승격 예정 순서로 읽히는 표현으로 표시 **shall not**한다.
+
+  > 근거: `position`은 **강좌 단위 순번**이다(§A.4, REQ-CNL-008의 주의 항목). 강좌를 식별할 수 없는 자리에 `position`만 놓거나 "내 대기 순위"·"승격 예정 순서" 같은 전역 순위 표기를 쓰면, **화면이 사실이 아닌 것을 사용자에게 말하게 된다** — 강좌 A의 1번이 강좌 B의 2번보다 먼저 승격된다는 보장이 없기 때문이다. 이는 `acceptance.md` §C.1의 차단 등급 정의("사용자에게 사실과 다른 정보를 전달")에 해당하는 결함 유형이며, INV-FE-011이 이를 불변식으로 고정하고 `acceptance.md` AC-FE-112가 검증한다.
 
 ### B.5 관리자 화면 (ADM)
 
@@ -311,6 +339,7 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001]
 | INV-FE-008 | 취소 대상 식별자는 사용자 입력이 아닌 백엔드 응답에서만 유래한다 | REQ-CNL-004 |
 | INV-FE-009 | 대기명단 취소에 전달되는 값은 `waitlistEntryId`이며 `position`이 아니다 | REQ-CNL-003, §A.4 |
 | INV-FE-010 | 목록 조회의 빈 배열은 오류가 아니라 정상 상태로 표시된다 | REQ-CNL-007 |
+| INV-FE-011 | 대기 목록의 `position`은 항상 `courseTitle`과 함께 표시되며, 전역 대기 순위·승격 예정 순서로 표시되지 않는다 | REQ-CNL-010, §A.4 |
 
 ---
 
