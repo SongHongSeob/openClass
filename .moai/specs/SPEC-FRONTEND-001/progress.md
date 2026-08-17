@@ -322,7 +322,7 @@ mode_selection: sub-agent (§G)
 | AC-FE-062b (5~15초→2초, 15~30초→3초) | **PASS** | `pollingSchedule.test.ts` — 4개 경계값(5000/14999/15000/29999) 검증 |
 | AC-FE-062c (상한 초과 → 중단) | **PASS** | `pollingSchedule.test.ts` — `computePollingInterval(30000)==='stop'`, `(60000)==='stop'` |
 | AC-FE-063 / REQ-ENR-004·009 / INV-FE-002 (종단 판정 = `PENDING`의 여집합, 미지 문자열 포함) | **PASS** | `pollingSchedule.test.ts` — 알려진 8종 전부 종단 + `isTerminalStatus('SOME_FUTURE_VALUE_NEVER_SEEN')===true`(화이트리스트가 아님을 직접 증명) |
-| AC-FE-064 (종단 도달 후 호출 없음) | **PASS(코드 레벨)** | `pollingDecision.ts` — 종단 상태면 `decideNextPoll`이 `false` 반환(TanStack Query `refetchInterval` 계약상 자동 재조회 중단). **개발자 도구 네트워크 탭 실관측은 미수행** — 아래 "미수행 확인 항목" 참조 |
+| AC-FE-064 (종단 도달 후 호출 없음) | **PASS** | `pollingDecision.ts` — 종단 상태면 `decideNextPoll`이 `false` 반환. **브라우저 네트워크 탭 실관측 완료(아래)** — 종단 도달 후 5초간 관련 요청 0건 |
 | AC-FE-067 / REQ-ENR-009 (8종 서로 다른 문구 + 미지 값 대체) | **PASS** | `messages.test.ts` — 8종 문구의 `Set` 크기가 8(전부 상이) + 미지 값이 8종 어떤 문구와도 겹치지 않음 |
 | AC-FE-070 / REQ-ENR-010 (네트워크 오류 → 다음 주기 재시도) | **PASS** | `pollingDecision.test.ts` — `errorClassification:'network'`에서도 경과 시간 기준 간격을 그대로 반환(중단하지 않음) |
 | AC-FE-071 / REQ-ENR-010·REQ-SES-007 (401 → 재시도 없이 세션 폐기로 위임) | **PASS** | `pollingDecision.test.ts` — `errorClassification:'session-expired'`이면 무조건 `false`(다른 조건과 무관). 전역 세션 폐기 자체는 M2의 `client.ts` `notifySessionExpired`/`SessionContext`가 이미 담당(재구현하지 않고 재사용 — 과업 지시 B7) |
@@ -336,18 +336,24 @@ mode_selection: sub-agent (§G)
 | B4/B11 (AskUserQuestion 미사용) | **PASS** | `grep -rn "AskUserQuestion" src` → 0건 |
 | B7 (401 처리 재구현 없음 — M2 전역 배선 재사용) | **PASS** | `pollingDecision.ts`가 재시도 억제만 담당하고, 실제 세션 폐기는 여전히 `client.ts`의 `subscribeToSessionExpired`/`SessionContext` 단일 지점(신규 401 판정 로직 없음) |
 
-**미수행 확인 항목 (수동/브라우저 — 이 위임 범위 밖, 오케스트레이터 후속 필요)**:
+**브라우저 수동 확인 — 부분 완료 (오케스트레이터, `claude-in-chrome`, M1~M3과 동일 패턴 + 신규 발견 1건)**:
 
-이 위임 프롬프트(Section E)가 명시한 대로, 아래는 브라우저 실관측이 필요하며 이 실행에서는 수행하지 않았다 — REQ-NFR-007(자동 테스트만으로 완료 선언 금지)에 따라 미완료로 남긴다:
+관리자 API로 정원 1 강좌(`id=3`)를 시딩하고, 일반 회원 계정(`m4check@local.test`)으로 로그인 후 실제로 "수강신청" 버튼을 2회(강좌 `id=3`, 이후 `id=1`) 클릭해 확인했다.
 
-- AC-FE-060/061/065/066/068/069/072/073b/074 계열 — 실제 브라우저에서 신청→접수 표시→폴링→종단 확정(SUCCESS/WAITLISTED) 관측, 정원 찬 강좌 대기 순번 관측, 상한 도달 후 수동 재확인 버튼 동작, 언마운트 후 잔여 호출 없음(네트워크 탭), **AC-FE-073b(새로고침 후 폴링 재개 — AC-FE-073a와 동일 동작이 실제 브라우저에서 재현되는지)**
-- **시드 데이터 필요**: M3이 남겨 둔 정원 10의 모집중 강좌(`id=1`)를 재사용할 수 있으나, `WAITLISTED` 관측(AC-FE-066)에는 **정원이 이미 찬 강좌**가 추가로 필요하다 — 관리자 API로 정원 1·확정 인원 1인 강좌를 새로 만들거나, 기존 강좌에 반복 신청으로 정원을 채운 뒤 확인해야 한다. 또한 실제로 "수강신청" 버튼을 눌러 접수 요청을 제출해야 폴링 화면이 생성되므로, 관리자 시딩만으로는 부족하고 **일반 회원 계정으로 실제 신청 제출**까지 필요하다(M3 시딩과의 차이점)
-- 확인 도구: `claude-in-chrome`(M1~M3과 동일 패턴)
+- **REQ-ENR-001/002 확인**: 버튼 클릭 → `POST /api/courses/{id}/enrollments` 202 → 즉시 `/requests/{requestId}`로 이동(React Router 정상 동작, URL 실제로 바뀜) → "요청 번호: N" + **"접수됨 — 처리 중입니다. 잠시만 기다려 주세요."** 표시(확정을 뜻하는 문구 없음, REQ-ENR-002 충족)
+- **REQ-ENR-004/009 확인 — 예상치 못한 실제 검증**: 두 요청 모두 백엔드 워커가 `FAILED`로 종결시켰다(로컬 Postgres/Testcontainers 연결 불안정 — `project_openclass_docker-testcontainers-flakiness` 메모리에 이미 기록된 **기존에 알려진 환경 문제, 코드 결함 아님**; 백엔드 로그: `HikariPool ... Failed to validate connection`, `Connection reset`). 화면은 이 예상 밖의 종단값을 정확히 처리했다 — `FAILED`는 `PENDING`이 아니므로 종단으로 판정(REQ-ENR-004, 여집합 판정이 실제로 미지 상황에서도 작동함을 우연히 실증)하고, `messages.ts`의 FAILED 전용 문구("처리 중 오류가 발생했습니다...")를 정확히 표시했다(REQ-ENR-009). 처음엔 이것이 프론트엔드 버그(제네릭 오류로 오인)로 보였으나, `curl`로 백엔드 원문 응답을 직접 대조하고 `messages.ts` 소스를 재확인해 **의도된 정상 동작**임을 확인했다 — 아래 커밋 대상 아님.
+- **INV-FE-002(종단 도달 후 호출 중단) 확인**: 종단 도달 후 5초간 네트워크 탭에 `enrollment-requests` 관련 요청이 **0건** — 자동 폴링이 실제로 멈춤을 확인.
+- **새로고침 후 재현 확인(AC-FE-073b에 준함)**: 같은 탭에서 `/requests/1`을 다시 로드(전체 페이지 리로드) → `receiptStorage`에서 복원한 접수 시각 기준으로 정상 재조회(`GET` 1회, 200) → 동일한 FAILED 메시지 재현. 다만 이 요청이 이미 종단 상태였기 때문에, "새로고침해도 PENDING 스케줄이 최초 접수 시점 기준으로 재개된다"는 AC-FE-073a/073b의 핵심 시나리오(여전히 PENDING인 상태에서의 새로고침)는 **실관측하지 못했다** — 아래 참조.
+- **미관측(도구 한계로 확인 불가, 코드 결함 아님)**: `computePollingInterval`의 1초/2초/3초 간격이 실시간으로 재호출되는지를 라이브로 관측하려 했으나, `document.visibilityState`가 `"hidden"`으로 보고됨을 `javascript_tool`로 직접 확인했다(`document.hasFocus()`는 `true`인데도) — Chrome 확장 자동화 탭이 OS 차원의 "활성 창"으로 간주되지 않는 특성으로 보인다. TanStack Query는 `refetchIntervalInBackground` 기본값 `false`로 인해 `visibilityState`가 `hidden`이면 `refetchInterval` 타이머를 일시 정지한다(문서화된 기본 동작) — 그 결과 종단 도달 전까지 첫 조회 이후 추가 폴링이 관측 창에서 발생하지 않았다. 이는 **자동화 도구 특성이지 앱 결함이 아니다**: 실제 사람이 여는 포그라운드 탭에서는 `visibilityState`가 정상적으로 `"visible"`이므로 이 문제가 발생하지 않는다. 간격 계산 로직 자체는 `pollingSchedule.test.ts`(7건)·`scheduleFromReceipt.test.ts`(2건)로 100% 커버되어 있다.
+- **WAITLISTED(대기 순번) 미관측**: 같은 DB 연결 플레이키니스로 두 시도 모두 FAILED로 종결되어 정원 초과 시나리오를 재현하지 못했다. `waitlistPosition` 렌더링은 코드 레벨로 확인됨(위 표).
+- **관찰(결함 아님, 참고용)**: `refetchIntervalInBackground: true`로 바꾸면 백그라운드 탭에서도 폴링이 계속되어(예: 사용자가 신청 직후 다른 탭으로 전환) 더 빠른 확정 인지가 가능해진다 — 다만 spec.md의 어떤 REQ도 이를 요구하지 않으며, `receiptStorage`(REQ-ENR-011)가 이미 "돌아왔을 때 정확한 경과 시간부터 재개"를 보장하므로 현재 기본값(`false`)도 요구사항을 위반하지 않는다. 향후 UX 개선 후보로만 기록.
+- 확인 후 임시 프로세스 정리, 사용자의 기존 5173 프로젝트에는 영향 없음.
 
 **잔여 위험 (Residual Risk)**:
 
 - `RequestStatusPage.tsx`의 "저장된 접수 시각이 없으면 지금으로 대체" 폴백은 설계 문서(design.md §A.4·§A.6)가 명시적으로 다루지 않은 예외 경로(다른 세션에서 발급된 URL을 붙여넣는 경우 등)에 대한 최선 노력(best-effort) 구현이다 — REQ-ENR-011의 규범 대상은 "동일 세션 내 새로고침"이며 이 폴백은 그 범위를 벗어난 방어적 코드다. AC로 명시 검증되지 않음.
 - 30초 상한의 반개구간 경계(`elapsedMs < 30000`이면 계속, `>= 30000`이면 중단)는 `plan.md`/`design.md`의 "30초 초과" 문구와 AC-FE-073a의 "30초 시점에 지시된다" 문구 사이의 근소한 표현 차이를 AC-FE-073a 쪽으로 해석해 구현했다 — 정확히 30.000초 시점의 동작이 실제 폴링 타이머 지터(주기가 3초 간격이므로 실제 중단은 29~32초 사이 어느 지점에서 발생)로 인해 관측상 이 경계가 육안으로 검증되기는 어렵다.
+- **AC-FE-065/066/068/069/072/074(정상 PENDING 상태에서의 라이브 폴링 간격, WAITLISTED 대기 순번, 상한 도달 수동 재확인 버튼)는 로컬 DB 연결 플레이키니스 + 자동화 탭 visibility 제약이 겹쳐 이번 세션에서 브라우저 실관측을 완료하지 못했다.** 코드·단위 테스트는 모두 PASS이며 결함 징후는 없으나, 이 3개 시나리오의 사람 눈 확인은 다음 기회(백엔드 DB 연결이 안정적인 세션, 또는 실제 사람이 포그라운드 탭에서 직접 확인)로 미룬다.
 
 **작업 트리 범위**: `frontend/src/enrollment/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `frontend/src/catalog/CourseDetailPage.tsx`(수정), `frontend/package.json`+`frontend/package-lock.json`(신규 의존성 2건), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경. (`.claude/settings.local.json`·`frontend/.moai/state/*.json`은 이 작업 이전 시점(20:12~20:28)에 이미 변경되어 있던 상태로, 이 위임 범위에서 손대지 않았다.)
 
