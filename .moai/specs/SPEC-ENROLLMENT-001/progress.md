@@ -1128,7 +1128,7 @@ frontmatter_transition:
   file: .moai/specs/SPEC-ENROLLMENT-001/spec.md
   status: "in-progress -> completed"
   updated: "2026-08-16 -> 2026-08-17"
-sync_commit_sha: pending-backfill-sync-commit-not-yet-created  # D3 예외 — 자기 참조 해저드, 후속 커밋에서 백필
+sync_commit_sha: 2148d05084560950dc73642a8bca1ec3f9670df9  # backfilled per D3 예외
 ```
 
 ### sync-auditor 1차 감사 — FAIL → 오케스트레이터 직접 수정 → 재검증 완료
