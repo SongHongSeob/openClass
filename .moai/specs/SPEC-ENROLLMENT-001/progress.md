@@ -1094,7 +1094,7 @@ M6이 이 SPEC의 마지막 run-phase 마일스톤이다. Semi-autonomous progre
 ```yaml
 run_status: audit-ready
 run_complete_at: 2026-08-17
-run_commit_sha: pending-backfill-M6  # 이 커밋이 착지한 뒤 실제 SHA로 백필 필요(D3 예외 — 자기 참조 해저드)
+run_commit_sha: be0cd73e6341a259bbe7e3031f5067239c0d16fe  # M6 커밋(D3 예외 — 자기 참조 해저드로 인한 사후 백필)
 milestones_complete: [M1, M2, M3, M4, M5, M6]
 ac_scope: AC-ENR-001..AC-ENR-053  # acceptance.md §D.2 매트릭스 전체 범위
 ac_pass_count: 53  # M1~M6 전체 AC PASS 매트릭스 누적(acceptance.md §D.2와 대조)
