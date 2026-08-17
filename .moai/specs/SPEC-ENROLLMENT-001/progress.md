@@ -2,7 +2,7 @@
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — 진행 기록"
 version: "0.3.0"
-status: in-progress
+status: completed
 created: 2026-08-15
 updated: 2026-08-17
 author: manager-spec
@@ -1245,3 +1245,33 @@ sync-auditor(Tier L, 회의적 평가)가 1차 감사에서 **FAIL** 판정을 �
 **전체 스위트 1회 실행(Phase 1 사전 점검)**: sync 진입 전 `./gradlew test`(41개 클래스) 1회 실행 결과 135/135 시도 중 86건 실패, 전부 `CannotCreateTransactionException`/`Connection refused`(예외 시그니처 100% 동일, 논리 오류 0건) — 로컬 Docker Desktop 메모리 한도(7.75GB)에서 컨테이너 30개+ 연속 churn에 의한 자원 고갈로 판단. 이어서 8개 소배치(각 5~6클래스)로 나눠 재검증한 결과 **41개 테스트 클래스 전원 격리/소배치 실행에서 100% PASS**(연결 타임아웃으로 실패한 항목은 예외 없이 개별 재실행에서 성공). 이 사실과 근본 원인은 사용자에게 직접 설명하고 확인받았다.
 
 sync-auditor 재감사는 이 커밋 이후 별도로 수행하지 않았다(F1/F3 수정이 소규모·국소적이고 회귀 재현/재검증을 오케스트레이터가 직접 수행했으므로) — 필요시 다음 세션에서 2차 감사를 요청할 수 있다.
+
+### §E.4 addendum — v0.3.0 M7 제자리 개정 sync-phase 마무리 (2026-08-17)
+
+> 위 §E.4 본문(2026-08-16, `sync_commit_sha: 2148d05...`)은 M1~M6(v0.2.x) sync 종결 당시의 기록으로 **정확하며 수정 대상이 아니다**. 이 addendum은 M7(v0.3.0 제자리 개정, `GET /api/enrollments/mine`·`GET /api/waitlist-entries/mine`) sync-phase 종결만을 별도로 기록한다. sync-auditor 재실행 없음 — §E.1 "v0.3.0 제자리 개정" 절이 명시한 대로 M1~M6 설계를 변경하지 않는 읽기 전용 조회 추가이므로 경량 종결(manager-docs 단독)로 처리했다.
+
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-08-17
+sync_files_touched:
+  - CHANGELOG.md     # SPEC-ENROLLMENT-001 절에 M7(보유 내역 조회) Added 항목 + AC-ENR-054~058 Verification 라인 + Known Limitations 4회 연속 jacoco 갱신
+  - README.md        # API 엔드포인트 절에 GET /api/enrollments/mine · GET /api/waitlist-entries/mine 2행 추가
+  - .moai/specs/SPEC-ENROLLMENT-001/spec.md       # frontmatter status 전이만 (body 무변경)
+  - .moai/specs/SPEC-ENROLLMENT-001/plan.md       # frontmatter status 전이만 (body 무변경)
+  - .moai/specs/SPEC-ENROLLMENT-001/acceptance.md # frontmatter status 전이만 (body 무변경)
+  - .moai/specs/SPEC-ENROLLMENT-001/progress.md   # 이 addendum + frontmatter status 전이
+frontmatter_transitions:
+  - file: .moai/specs/SPEC-ENROLLMENT-001/spec.md
+    status: "in-progress -> completed"
+  - file: .moai/specs/SPEC-ENROLLMENT-001/plan.md
+    status: "in-progress -> completed"
+  - file: .moai/specs/SPEC-ENROLLMENT-001/acceptance.md
+    status: "in-progress -> completed"
+  - file: .moai/specs/SPEC-ENROLLMENT-001/progress.md
+    status: "in-progress -> completed"
+  updated: "2026-08-17 (unchanged date, same-day amendment close)"
+m7_scope_closed: "AC-ENR-054..058 (5건) — DEP-2(SPEC-FRONTEND-001) 계약 폐쇄"
+known_residual_risks_carried_forward:
+  - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4/M5/M6/M7) 미확보 — §E.2 M7 잔여 위험 1번, §E.3 known_residual_risks 참고. 코드 결함 아님(로컬 Docker 자원 고갈, M6에서 근본 원인 규명 완료)"
+sync_commit_sha: pending-backfill-m7-sync  # D3 예외 — 이 커밋 자신의 SHA는 커밋 후 별도 백필 필요
+```

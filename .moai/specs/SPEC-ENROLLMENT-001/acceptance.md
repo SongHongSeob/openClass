@@ -2,7 +2,7 @@
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — 인수 기준"
 version: "0.3.0"
-status: in-progress
+status: completed
 created: 2026-08-15
 updated: 2026-08-17
 author: manager-spec

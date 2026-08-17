@@ -66,4 +66,6 @@ JWT 액세스 토큰 기반 인증. 공개 엔드포인트 2개(`POST /api/auth/
 - `GET /api/enrollment-requests/{requestId}` — 접수 상태 조회(요청자 소유권 범위, 대기 순번 노출).
 - `DELETE /api/enrollments/{enrollmentId}` — 확정된 수강신청 취소.
 - `DELETE /api/waitlist-entries/{entryId}` — 대기명단 항목 취소.
+- `GET /api/enrollments/mine` — 내 활성 확정 목록 조회(`enrollmentId` 오름차순, 인증 주체 단독 스코프, 회원 식별자 파라미터 없음).
+- `GET /api/waitlist-entries/mine` — 내 활성 대기 목록 조회(`position` 오름차순, 인증 주체 단독 스코프, 회원 식별자 파라미터 없음).
 - 정원 증설은 기존 `PATCH /api/admin/courses/{id}` 관리자 강좌 수정 엔드포인트를 통해 처리되며, 증설 시 대기명단 자동 승격이 트리거된다.

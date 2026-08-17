@@ -49,12 +49,14 @@
 - **관리자 정원 증설 연동 (M5)**: 기존 `PATCH /api/admin/courses/{id}` 강좌 수정 엔드포인트를 통한 정원 증설 시 대기명단 승격 큐 연동.
 - **마감 정리 (M6)**: 입력 검증 강화, 추적성 로깅, 커버리지/린트 결과의 정직한 보고(jacoco 패키지 단위 집계 환경 제약을 클래스 단위 대체 증거로 명시).
 - **sync-audit 후속 수정**: `Course.enrolled_count`에 `updatable=false` 추가(관리자 강좌 수정이 워커의 동시 정원 증가를 되돌릴 수 있던 잠재 결함 차단), `EnrollmentAggregateBoundaryArchitectureTest`에 `CourseCapacityRepository` 패키지 경계 ArchUnit 규칙 추가, `EnrollmentReceiptLockOrderTest` 잠금 순서 검증을 메서드 단위로 강화. 상세: progress.md §E.4 "sync-auditor 1차 감사".
+- **보유 내역 조회 (M7, v0.3.0 제자리 개정)**: `GET /api/enrollments/mine`(내 활성 확정 목록, `enrollmentId` 오름차순), `GET /api/waitlist-entries/mine`(내 활성 대기 목록, `position` 오름차순) — 둘 다 인증 주체만으로 스코프되며 회원 식별자 입력 파라미터를 받지 않는다(`SPEC-FRONTEND-001`의 `DEP-2` 계약 폐쇄). 읽기 전용(`@Transactional(readOnly = true)`)이며 기존 워커·큐·접수 잠금·승격 경로는 무변경.
 
 ### Verification
 
 - 인수 기준 AC-ENR-001~053 (53건) 중 52건 PASS + 1건 PASS-WITH-DEBT(AC-ENR-049, 커버리지 집계 환경 제약 — progress.md §E.2 M6 참고), 0건 FAIL — `.moai/specs/SPEC-ENROLLMENT-001/acceptance.md` §D.2 추적성 매트릭스 기준.
+- (v0.3.0 M7 추가) 인수 기준 AC-ENR-054~058 (5건) 전부 PASS(격리 실행) — 누적 AC-ENR-001~058 총 58건 중 57건 PASS + 1건 PASS-WITH-DEBT, 0건 FAIL. `.moai/specs/SPEC-ENROLLMENT-001/acceptance.md` §D.2 추적성 매트릭스 기준.
 
 ### Known Limitations
 
 - 다중 워커 인스턴스 배포 시 접수 순서 보장이 성립하지 않음(워커 1개 전제) — README.md 배포 전제 절 참고.
-- jacoco 패키지 단위 커버리지 집계가 3회 연속(M4/M5/M6) 미확보되어 클래스 단위 개별 실행 수치로 대체됨 — CI 환경에서 재시도 권장.
+- jacoco 패키지 단위 커버리지 집계가 4회 연속(M4/M5/M6/M7) 미확보되어 클래스 단위 개별 실행 수치로 대체됨 — CI 환경에서 재시도 권장(progress.md §E.2 M7 잔여 위험 1번 — M6에서 근본 원인을 "연속 격리 재실행의 누적 Docker 자원 고갈"로 규명).
