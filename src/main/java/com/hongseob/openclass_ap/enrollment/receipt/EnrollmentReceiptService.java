@@ -121,4 +121,31 @@ public class EnrollmentReceiptService {
         EnrollmentRequest saved = requestRepository.save(request);
         return saved.getId();
     }
+
+    /**
+     * 관리자 정원 증설을 접수한다(M5, REQ-ADX-001). {@code
+     * course.CourseService#update}가 정원이 실제로 증가했을 때만(신규 정원 &gt;
+     * 이전 정원) 호출한다 — 무변경·축소 갱신에서는 호출되지 않는다. 승격 처리는
+     * 이 메서드가 절대 하지 않는다(plan.md §G 안티패턴 "정원 증설을 관리자
+     * API에서 직접 승격 처리") — 큐 적재만 수행하고 즉시 반환한다.
+     *
+     * <p>{@code CAPACITY_INCREASE} 요청은 특정 회원에 귀속되지 않으므로 {@link
+     * EnrollmentRequest#createCapacityIncrease}가 {@code member_id}를 NULL로
+     * 적재한다.</p>
+     *
+     * @return 생성된 {@code CAPACITY_INCREASE} 큐 행의 순서값(요청 식별자)
+     */
+    @Transactional
+    public Long receiveCapacityIncrease(Long courseId) {
+        if (lockProperties.lockEnabled()) {
+            jdbcTemplate.queryForObject("SELECT pg_advisory_xact_lock(?, ?)", Object.class,
+                    ENROLLMENT_LOCK_CLASSID, courseId.intValue());
+        }
+
+        // @MX:ANCHOR: [AUTO] 접수 잠금 획득이 CAPACITY_INCREASE 큐 행 INSERT(순서값 할당)보다 반드시 선행해야 한다
+        // @MX:REASON: REQ-QUE-003(2회차 감사 후속 N2) — ENROLL·CANCEL과 동일하게 CAPACITY_INCREASE 적재도 접수 잠금을 거쳐야 AC-ENR-005의 "잠금 없이 큐 행을 INSERT하는 프로덕션 경로 0건" 조건을 만족한다.
+        EnrollmentRequest request = EnrollmentRequest.createCapacityIncrease(courseId);
+        EnrollmentRequest saved = requestRepository.save(request);
+        return saved.getId();
+    }
 }

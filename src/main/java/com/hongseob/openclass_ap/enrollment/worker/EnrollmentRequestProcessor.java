@@ -32,13 +32,17 @@ import org.springframework.transaction.annotation.Transactional;
  * · 마감 강좌 승격 동결)와 승격 헬퍼 {@link #promoteNextEligible}(부적격
  * 대기자 건너뛰기, REQ-WL-009)을 구현한다.</p>
  *
- * <p>{@code CAPACITY_INCREASE} 요청은 아직 프로덕션 경로로 생성되지
- * 않으므로({@link
- * com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptService}가
- * {@code ENROLL}·{@code CANCEL}만 적재) {@link #dispatch}가 그 종류를 만나면
- * 방어적으로 예외를 던진다 — 조용히 잘못된 결과를 기록하는 것보다 낫다. 그
- * 디스패치는 M5가 추가하며, {@link #promoteNextEligible}을 그대로 재사용할
- * 예정이다(design.md §4.3).</p>
+ * <p><b>M5 범위</b>(plan.md §F M5, REQ-ADX-001~005): {@code CAPACITY_INCREASE}
+ * 요청의 전체 디스패치({@link #dispatchCapacityIncrease})를 구현한다 — 마감
+ * 강좌 승격 동결(REQ-ADX-005)을 가장 먼저 확인한 뒤, {@link
+ * #promoteNextEligible}을 정원이 찰 때까지(또는 승격 대상이 소진될 때까지)
+ * 반복 호출한다(design.md §4.3). {@code CANCEL}이 이 헬퍼를 최대 1회만
+ * 호출하는 것과 달리 이 경로는 여러 명을 한 번에 승격할 수 있다는 점이
+ * 유일한 차이이며, 헬퍼 자체는 수정하지 않고 그대로 재사용한다. 큐 적재는
+ * {@code course.CourseService#update}가 {@link
+ * com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptService#receiveCapacityIncrease}를
+ * 거쳐 수행한다 — 승격 처리를 관리자 API 경로에서 직접 하지 않는다
+ * (REQ-ADX-001).</p>
  */
 @Service
 public class EnrollmentRequestProcessor {
@@ -112,12 +116,7 @@ public class EnrollmentRequestProcessor {
         return switch (request.getRequestType()) {
             case ENROLL -> dispatchEnroll(request);
             case CANCEL -> dispatchCancel(request);
-            case CAPACITY_INCREASE ->
-                // 이 요청 종류를 큐에 적재하는 프로덕션 경로는 아직 없다(M5
-                // 범위) — 여기 도달하면 스키마를 우회한 직접 INSERT이거나
-                // 아직 확장되지 않은 상태에서 호출된 것이다.
-                throw new UnsupportedOperationException(
-                        "CAPACITY_INCREASE 디스패치는 이 마일스톤 범위 밖이다: " + request.getRequestType());
+            case CAPACITY_INCREASE -> dispatchCapacityIncrease(request);
         };
     }
 
@@ -209,14 +208,45 @@ public class EnrollmentRequestProcessor {
     }
 
     /**
+     * REQ-ADX-002·003·005의 {@code CAPACITY_INCREASE} 디스패치 전체 — 마감
+     * 분기가 {@link #dispatchCancel}과 동일한 이유로 승격 시도보다 먼저다
+     * (REQ-ADX-005, spec.md §A.5, AC-ENR-053). 마감이 아니면 {@link
+     * #promoteNextEligible}이 더 이상 승격할 대상이 없다고 알릴 때까지(정원
+     * 도달 또는 활성 대기자 소진, 둘 다 헬퍼 내부의 원자적 정원 게이트가
+     * 처리한다) 반복 호출한다 — {@code CANCEL} 경로가 최대 1명만 승격하는
+     * 것과 달리 이 경로는 여러 명을 한 번에 승격할 수 있다(design.md §4.3,
+     * AC-ENR-042). 한 명도 승격하지 못하면 {@code NOOP}(REQ-ADX-003), 1명
+     * 이상이면 {@code PROMOTED}로 종결한다.
+     */
+    private RequestResult dispatchCapacityIncrease(EnrollmentRequest request) {
+        Long courseId = request.getCourseId();
+        Course course = courseCapacityRepository.findById(courseId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "워커 처리 시점에 강좌를 찾을 수 없습니다: " + courseId));
+
+        if (course.getStatus() == CourseStatus.CLOSED) {
+            // 마감 강좌에서는 어떤 승격도 하지 않는다(REQ-ADX-005, spec.md
+            // §A.5, AC-ENR-053). 대기명단 순번은 그대로 보존된다.
+            return RequestResult.CLOSED;
+        }
+
+        boolean promotedAny = false;
+        while (promoteNextEligible(courseId)) {
+            promotedAny = true;
+        }
+        return promotedAny ? RequestResult.PROMOTED : RequestResult.NOOP;
+    }
+
+    /**
      * 승격 헬퍼 — design.md §4.3 {@code promoteNextEligible}. 가장 앞선 활성
      * 대기자의 승격 적격 여부를 확인하고, 부적격(이미 이 강좌에 유효한 확정
      * 보유)이면 {@code DUPLICATE}로 종결한 뒤 다음 대기자로 건너뛴다 —
      * 예외를 던져 {@link #processOne} 트랜잭션 전체를 롤백시키지 않는다.
      *
      * <p>{@code CANCEL} 처리는 이 메서드를 1회만 호출한다(승격 최대 1명).
-     * {@code CAPACITY_INCREASE}(M5)는 정원이 찰 때까지 반복 호출해 같은
-     * 헬퍼를 재사용할 예정이다.</p>
+     * {@code CAPACITY_INCREASE}({@link #dispatchCapacityIncrease}, M5)는
+     * 이 메서드가 {@code false}를 반환할 때까지(정원 도달 또는 활성 대기자
+     * 소진) 반복 호출해 같은 헬퍼를 그대로 재사용한다.</p>
      */
     // @MX:ANCHOR: [AUTO] 부적격 대기자는 예외를 던지지 않고 건너뛴다 — 승격 INSERT를 적격성 확인 뒤에만 수행한다
     // @MX:REASON: REQ-WL-009(2차 감사 E1) — 검사 없이 곧장 INSERT하면 (member_id, course_id) WHERE status='ENROLLED' 부분 유니크 인덱스 위반으로 processOne 트랜잭션 전체가 롤백된다. 그 결과 CANCEL이 소실되고 여유 정원이 영원히 재배정되지 않으며, 부적격 항목이 대기 선두에 남아 이후 모든 CANCEL을 같은 방식으로 실패시킨다 — 큐 선두 영구 정지(생존성 결함). AC-ENR-044가 이 계약을 정확히 검증한다.

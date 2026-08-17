@@ -55,7 +55,12 @@ public class EnrollmentRequest {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "member_id", nullable = false)
+    /**
+     * {@code CAPACITY_INCREASE}(M5)는 특정 회원에 귀속되지 않는 관리자 API
+     * 적재 요청이므로 이 컬럼은 NULL을 허용한다(spec.md §A.4.1 "적재 주체:
+     * 관리자 API"). {@code ENROLL}·{@code CANCEL}은 항상 값을 채운다.
+     */
+    @Column(name = "member_id")
     private Long memberId;
 
     @Column(name = "course_id", nullable = false)
@@ -110,6 +115,19 @@ public class EnrollmentRequest {
      */
     public static EnrollmentRequest createCancel(Long memberId, Long courseId, Long targetEnrollmentId) {
         return new EnrollmentRequest(memberId, courseId, targetEnrollmentId, RequestType.CANCEL);
+    }
+
+    /**
+     * 관리자 정원 증설 API 경로가 사용하는 생성 진입점(REQ-ADX-001, M5). 특정
+     * 회원이 접수하는 것이 아니므로 {@code memberId}는 NULL로 적재한다(§A.4.1
+     * "적재 주체: 관리자 API"). {@code
+     * com.hongseob.openclass_ap.course.CourseService#update}가 정원이 실제로
+     * 증가했을 때만(신규 정원 &gt; 이전 정원) {@code
+     * receipt.EnrollmentReceiptService#receiveCapacityIncrease}를 거쳐 이
+     * 팩토리를 호출한다 — 무변경·축소 갱신에서는 호출되지 않는다.
+     */
+    public static EnrollmentRequest createCapacityIncrease(Long courseId) {
+        return new EnrollmentRequest(null, courseId, null, RequestType.CAPACITY_INCREASE);
     }
 
     /**

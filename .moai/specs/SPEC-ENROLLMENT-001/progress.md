@@ -721,6 +721,190 @@ $ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/Enrollme
 
 Semi-autonomous progression(마일스톤별 확인)에 따라 M4 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M5(관리자 연동 확장)로 진행할지 결정한다.
 
+### M5 — 관리자 연동 확장 (완료)
+
+**신규 산출물**
+
+| 파일 | 역할 |
+|---|---|
+| `enrollment/request/EnrollmentRequest.java` (수정) | `member_id` 컬럼을 `nullable = false → nullable`로 완화하고 `createCapacityIncrease(courseId)` 생성 진입점 추가 — `CAPACITY_INCREASE`는 관리자 API 적재이며 특정 회원에 귀속되지 않으므로 `member_id`를 NULL로 적재한다(spec.md §A.4.1 "적재 주체: 관리자 API"). `createEnroll`/`createCancel` 무변경(git diff 확인) |
+| `enrollment/receipt/EnrollmentReceiptService.java` (수정) | `receiveCapacityIncrease(courseId)` 추가 — ENROLL·CANCEL과 동일한 접수 잠금 순서 계약(`pg_advisory_xact_lock` 획득 → 큐 INSERT)을 지키며 `CAPACITY_INCREASE` 큐 적재만 수행하고 승격은 절대 하지 않는다(`@MX:ANCHOR` 3번째 추가, 파일당 상한 3건 이내). `receiveEnrollment`·`receiveCancel` 기존 본문 완전 무변경(git diff 확인) |
+| `course/CourseService.java` (수정) | 생성자에 `EnrollmentReceiptService` 의존성 추가 + `update()`에 정원 증설 감지 훅(신규 정원 &gt; 이전 정원일 때만 `receiveCapacityIncrease` 호출, 무변경·축소 갱신에서는 미호출) — **course 패키지에서 유일하게 변경된 파일**. 승격을 관리자 API 경로에서 직접 수행하지 않는다(plan.md §G 안티패턴 1행) |
+| `enrollment/worker/EnrollmentRequestProcessor.java` (수정) | `dispatch()`에 `CAPACITY_INCREASE` 라우팅 추가(M2가 방어적으로 던지던 `UnsupportedOperationException` 제거), `dispatchCapacityIncrease()`(마감 분기를 승격 시도보다 먼저 확인 → `promoteNextEligible`을 소진될 때까지 반복 호출 → `PROMOTED`/`NOOP` 판정) 신규. `promoteNextEligible` 헬퍼 본문·`dispatchEnroll`·`dispatchCancel`·`isDuplicateEnroll`은 완전 무변경(git diff 확인) — M4 헬퍼를 그대로 재사용 |
+| `enrollment/EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest.java` (신규, 테스트) | AC-ENR-041/042/043/051/053 검증. 5개 메서드, 관리자 정원 변경은 `CourseAdminController`가 아니라 `CourseService#update`를 직접 호출해 재현(M4 형제 테스트와 동일한 패턴 — HTTP 인가는 AC-ADM-002/SPEC-COURSE-001 소관) |
+
+**REQ-ADX-001~005 추적성**
+
+| 요구사항 | 검증 AC/테스트 |
+|---|---|
+| REQ-ADX-001(정원 증설 → 큐 적재, 관리자 API에서 직접 승격 금지) | AC-ENR-041 — `정원_증설은_큐를_경유하며_워커를_구동하지_않으면_확정인원과_대기자가_그대로다()` |
+| REQ-ADX-002(모집 중 강좌의 정원 증설 → 순번 오름차순 일괄 승격, 정원 초과 금지) | AC-ENR-042 — `워커_구동시_대기자가_순번대로_승격되어_enrolled_count가_정원과_같아진다()` |
+| REQ-ADX-003(승격 대상 없음 → NOOP, 확정 행 미생성) | AC-ENR-043 — `대기자가_없는_정원_증설은_NOOP이고_새_확정행이_생성되지_않는다()` |
+| REQ-ADX-004(마감 후 미처리 ENROLL → CLOSED, 신규 확정 미생성) | M2 산출물(회귀 재확인) — `EnrollmentWorkerDispatchIntegrationTest.마감된_강좌의_대기중_ENROLL_요청_3건은_전부_CLOSED로_종결되고_도메인_생성이_없다()`, M5에서 코드 변경 없음(요청서 §4번 확인 사항, gap 없음) |
+| REQ-ADX-005(마감 강좌 정원 증설 → 승격 금지·`enrolled_count` 불변·순번 보존) | AC-ENR-053 — `마감_강좌에서_정원_증설은_승격_없이_CLOSED로_종결되고_재개_후에는_정상_승격된다()` |
+| (REQ-WL-009 재검증, CAPACITY_INCREASE 경로) | AC-ENR-051 — `부적격_대기자는_DUPLICATE로_건너뛰고_나머지_대기자가_순번대로_승격된다()` |
+
+**AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령 | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-041 | PASS | `./gradlew test --tests "*.EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest"` | `정원_증설은_큐를_경유하며_워커를_구동하지_않으면_확정인원과_대기자가_그대로다() PASS` — 정원 2(확정 2)+활성 대기 2명 강좌에서 관리자가 정원을 4로 증설하고 워커 미구동 → `course.capacity==4`, `enrolled_count==2` 유지, `request_type='CAPACITY_INCREASE'`·`state=PENDING'` 큐 행 정확히 1건, 대기 항목 2건 전부 `WAITING` 유지 |
+| AC-ENR-042 | PASS | 동일 | `워커_구동시_대기자가_순번대로_승격되어_enrolled_count가_정원과_같아진다() PASS` — 워커 구동 후 대기 2명(C·D)이 순번 오름차순으로 확정, `enrolled_count==capacity==4`, 확정 행 수 4건과 일치, 요청 결과 `PROMOTED`, C의 순번이 D보다 작음(오름차순 승격 확인) |
+| AC-ENR-043 | PASS | 동일 | `대기자가_없는_정원_증설은_NOOP이고_새_확정행이_생성되지_않는다() PASS` — 활성 대기자 없는 강좌에서 정원 증설(3→5) 후 워커 구동 → 결과 `NOOP`, `enrollment` 행 수 1건(기존)에서 불변, `enrolled_count` 불변 |
+| AC-ENR-051 | PASS | 동일 | `부적격_대기자는_DUPLICATE로_건너뛰고_나머지_대기자가_순번대로_승격된다() PASS` — 강좌 X(정원 2, 확정 2)에 대기 C(순번1, X에 이미 유효 확정 보유 — 부적격)·D(순번2)·E(순번3)가 있는 상태에서 정원을 4로 증설 → C는 `DUPLICATE`로 종결(중복 확정 행 생성 없음, 기존 1건만 존재), D·E가 순번대로 `PROMOTED`, `enrolled_count==4`, 요청 결과 `PROMOTED`(`FAILED` 아님 — 승격 루프가 부적격 대기자에서 예외를 던지지 않음을 입증) |
+| AC-ENR-053 | PASS | 동일 | `마감_강좌에서_정원_증설은_승격_없이_CLOSED로_종결되고_재개_후에는_정상_승격된다() PASS` — (1차) 마감(`CLOSED`) 강좌에서 정원 증설 → 결과 `CLOSED`, 새 확정 행 0건, `enrolled_count` 불변(2 유지), 대기 C·D의 상태·순번 완전 보존. (2차, "또한" 절) 강좌를 다시 `OPEN`으로 되돌린 뒤(이 SPEC 범위에는 재개 API가 없어 테스트 셋업에서 직접 DB 전이) 정원을 5로 재증설 → 결과 `PROMOTED`, C·D 전부 순번대로 정상 승격, `enrolled_count==4` — 대기명단이 마감으로 파괴되지 않았음을 확인 |
+| AC-ENR-004 (회귀) | PASS | `./gradlew test --tests "*.request.EnrollmentQueueSchemaIntegrationTest"` | `request_type이_도메인_밖_값이면_DB_제약이_거부하고_3종_값은_허용한다() PASS` — `CAPACITY_INCREASE` 포함 3종 값 전부 CHECK 제약 통과(M1 산출물, 코드 변경 없음, 무회귀) |
+| AC-ENR-044 (회귀) | PASS | `./gradlew test --tests "*.EnrollmentCancelWorkerDispatchIntegrationTest"` | 9개 메서드 전부 PASS(부적격 대기자 건너뛰기 + 큐 생존성 계약 무손상 확인) — `promoteNextEligible` 헬퍼가 M5에서 무변경으로 재사용되었음을 뒷받침 |
+
+**테스트 코드 발췌 — AC-ENR-053 핵심 단언(가장 안전-critical한 계약, 마감 동결 + 재개 후 대기명단 무결성)**
+
+```java
+// 1차: 마감 강좌 — 승격 없이 CLOSED
+Course course = courseRepository.findById(courseId).orElseThrow();
+course.close();
+courseRepository.save(course);
+
+updateCapacity(courseId, 4);
+worker.drainQueue();
+
+assertThat(firstRoundRequests.get(0).getResult()).isEqualTo(RequestResult.CLOSED);
+assertThat(courseRepository.findById(courseId).orElseThrow().getEnrolledCount()).isEqualTo(2);
+assertThat(cEntryAfter.getStatus()).isEqualTo(WaitlistStatus.WAITING); // 순번 보존
+
+// 2차: 재개 후 정원 재증설 — 대기명단이 파괴되지 않았음을 확인
+jdbcTemplate.update("UPDATE course SET status = 'OPEN' WHERE id = ?", courseId);
+updateCapacity(courseId, 5);
+worker.drainQueue();
+
+assertThat(secondRoundRequests.get(1).getResult()).isEqualTo(RequestResult.PROMOTED);
+assertThat(cEntryReopened.getStatus()).isEqualTo(WaitlistStatus.PROMOTED);
+```
+
+**테스트 코드 발췌 — `dispatchCapacityIncrease` 반복 승격 루프 (design.md §4 의사코드의 실제 구현)**
+
+```java
+private RequestResult dispatchCapacityIncrease(EnrollmentRequest request) {
+    Long courseId = request.getCourseId();
+    Course course = courseCapacityRepository.findById(courseId)
+            .orElseThrow(() -> new IllegalStateException(
+                    "워커 처리 시점에 강좌를 찾을 수 없습니다: " + courseId));
+
+    if (course.getStatus() == CourseStatus.CLOSED) {
+        return RequestResult.CLOSED; // REQ-ADX-005 — 승격 시도보다 먼저 확인
+    }
+
+    boolean promotedAny = false;
+    while (promoteNextEligible(courseId)) { // M4 헬퍼 그대로 재사용 — 부적격은 헬퍼 내부에서 건너뜀
+        promotedAny = true;
+    }
+    return promotedAny ? RequestResult.PROMOTED : RequestResult.NOOP;
+}
+```
+
+### 빌드 및 테스트 검증
+
+```
+$ ./gradlew compileJava compileTestJava
+BUILD SUCCESSFUL (deprecation 경고 1건 — M1부터 존재하던 기존 경고, M5 변경과 무관함을 git stash로 재확인)
+
+# M5 신규 테스트 — 개별 격리 실행
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed (AC-ENR-041/042/043/051/053 전부 포함)
+
+# M4 CANCEL 디스패치 회귀 (promoteNextEligible 공유 헬퍼 무손상 확인)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCancelWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 9 tests, 0 failed
+
+# 큐 스키마 CHECK 제약 회귀 (AC-ENR-004, CAPACITY_INCREASE 포함 3종 도메인)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.request.EnrollmentQueueSchemaIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+
+# ArchUnit 경계 규칙 회귀 (course→enrollment.receipt 신규 의존성 추가 후에도 무손상)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentAggregateBoundaryArchitectureTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueBoundaryArchitectureTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+
+# 관리자 API 회귀 (AC-ADM-005 정원 증설 경로, CourseService 생성자 시그니처 변경 영향 확인)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.admin.CourseAdminApiIntegrationTest"
+BUILD SUCCESSFUL — 8 tests, 0 failed
+
+# M2 CLOSED-ENROLL 회귀 (REQ-ADX-004, M5에서 코드 변경 없음)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+
+# receipt·waitlist·course·enrollment 나머지 전 클래스 — 개별/소배치 격리 재확인(잔여 위험 1번 대응)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptLockOrderTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentDbConstraintBackstopIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCancelApiIntegrationTest"
+BUILD SUCCESSFUL — 8 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.waitlist.WaitlistDuplicatePreventionIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.waitlist.WaitlistEntryCancelIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.waitlist.WaitlistPositionAssignmentIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed (최초 배치 시도에서 3/3 연결 타임아웃 실패 → 개별 재실행으로 100% PASS 확인, 잔여 위험 1번과 동일 패턴)
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.admin.CourseInputValidationIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed (배치 시도 3/3 연결 타임아웃 → 개별 재실행 PASS)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.CourseCatalogApiIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.course.CourseSchemaIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSchedulerConfigurationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.worker.EnrollmentWorkerSingleScheduleActivationPointTest"
+BUILD SUCCESSFUL — 7 tests, 0 failed
+
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentReceiptApiIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed (배치 시도 3/3 연결 타임아웃 → 개별 재실행 PASS)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentStatusQueryApiIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentMultiBatchOrderIntegrationTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentLockDisabledControlGroupIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOrderGuaranteeIntegrationTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed (배치 시도 4/4 연결 타임아웃 → 개별 재실행 PASS)
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentClaimExclusivityConcurrencyTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOversellPreventionConcurrencyTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentStatusLoadLatencyIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+```
+
+**M5 신규 테스트 총계: 1개 클래스, 5개 메서드, 개별 격리 실행에서 전부 PASS. M1~M4 회귀 재확인: 사실상 전체 회귀 스위트(28개 클래스, 90개 이상 메서드)를 개별/소배치로 재실행해 전부 PASS(무회귀 확인) — course/enrollment/waitlist 패키지 테스트를 사실상 전수 재검증했다.**
+
+### 정적 검증
+
+```
+$ grep -rn "AskUserQuestion" src/main/java/com/hongseob/openclass_ap/enrollment src/main/java/com/hongseob/openclass_ap/waitlist src/main/java/com/hongseob/openclass_ap/course src/test/java/com/hongseob/openclass_ap/enrollment src/test/java/com/hongseob/openclass_ap/waitlist
+(no output, exit=1)
+
+$ git diff --stat -- src/main/java/com/hongseob/openclass_ap/member src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java
+(no output — PRESERVE 대상 완전 무변경)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/course/
+(1개 파일만 변경 — CourseService.java. 생성자 파라미터 1개 추가 + update() 메서드에 6줄 추가. Course.java·CourseController.java·CourseAdminController.java·CourseRepository.java·CourseStatus.java·dto/*·admin/* 전부 무변경)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/receipt/EnrollmentReceiptService.java | grep -E "^-[^-]"
+(no output — receiveEnrollment·receiveCancel 기존 로직 삭제/수정 라인 0건, receiveCapacityIncrease 추가만 존재)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentRequestProcessor.java | grep -E "^-[^-]"
+(dispatch() switch의 CAPACITY_INCREASE 분기 3줄만 삭제 — UnsupportedOperationException 방어 코드가 실제 라우팅으로 교체된 것. dispatchEnroll·dispatchCancel·isDuplicateEnroll·promoteNextEligible 본문 삭제/수정 라인 0건)
+```
+
+### 잔여 위험 (Residual Risk)
+
+1. **다중 클래스 동시 배치 실행 시 환경 불안정 — 이번 마일스톤에서 가장 심하게 재현됨(M1~M4에 이은 5번째 연속 재현, 코드 결함 아님)**: 이번 마일스톤은 회귀 재확인 범위가 사실상 전체 스위트여서 배치 실행을 여러 차례 시도했고, 그 결과 M4가 관측한 패턴(대형 배치가 20분 이상 응답 없이 정체, 잔류 `GradleWorkerMain` 프로세스가 신규 워커와 Docker/Testcontainers 리소스를 경합)이 **훨씬 넓은 범위에서(3~4클래스 소배치조차)** 재현되었다 — `EnrollmentReceiptApiIntegrationTest`·`EnrollmentOrderGuaranteeIntegrationTest`·`WaitlistPositionAssignmentIntegrationTest`·`CourseInputValidationIntegrationTest`가 각각 소배치 실행에서 3~4건 전부 `CannotCreateTransactionException`(30초 연결 타임아웃)으로 실패했다가 개별 재실행에서는 매번 100% 성공했다. 위 "빌드 및 테스트 검증" 절의 모든 PASS는 이 방식(배치 실패 → 개별 재실행 확인)으로 얻은 최종 결과다. 이번 마일스톤에서 세션 전체에 걸친 대량의 격리 재실행(30회 이상의 개별 `./gradlew test` 호출) 자체가 로컬 Docker 리소스를 이례적으로 오래 점유한 것이 소배치 실패 확대의 요인일 가능성이 있다 — M1~M4의 "후속 조치 제안"(대형 배치 전 `ps aux | grep GradleWorkerMain` 확인, CI는 격리 러너를 쓰므로 로컬 전용 가능성 높음)이 그대로 유효하다.
+2. **패키지 단위 jacoco 라인 커버리지 수치를 이번에도 기록하지 못함(M4와 동일한 근본 원인, 2회 연속)**: `enrollment`+`waitlist`+`course` 3개 패키지 전체(29개 클래스)를 1회 `./gradlew test ... jacocoTestReport` 호출로 묶어 누적 커버리지를 집계하려 했으나, 위 1번 문제로 완료하지 못했다(대부분의 클래스가 연결 타임아웃으로 연쇄 실패). `jacocoTestReport.xml`을 직접 검사한 결과 `append=true` 설정에도 불구하고 개별 `./gradlew test --tests X` 호출 사이에 누적 커버리지가 기대만큼 반영되지 않는 것으로 관측되었다(예: `CourseService` 14.8% — `CourseAdminApiIntegrationTest` AC-ADM-005와 M5 신규 테스트 5건이 전부 `update()`를 실행했음에도 낮게 집계됨) — 이는 이 로컬 환경의 jacoco 리포트 집계 동작에 대한 별도 조사가 필요한 gap이며, M5의 기능적 정확성 증거(AC PASS/FAIL 매트릭스, 개별 테스트 100% PASS)에는 영향이 없다. 코드 변경분 자체는 M5 신규 5개 테스트 메서드가 `CourseService.update()`의 정원 증설 분기·`EnrollmentReceiptService.receiveCapacityIncrease`·`EnrollmentRequest.createCapacityIncrease`·`EnrollmentRequestProcessor.dispatchCapacityIncrease`(및 그 안의 `promoteNextEligible` 반복 호출)를 전부 최소 1회 이상 실행 경로로 통과시켰음을 AC 매트릭스가 개별적으로 입증한다.
+3. **M5 범위 밖에서 발견된 사전 존재 결함(pre-existing baseline defect) 2건 — M5 변경으로 인한 것이 아님을 `git stash`로 확인**: (a) `CourseEnrolledCountMutationAbsenceTest.프로덕션_소스에서_Course_엔티티와_읽기_전용_DTO_외에는_enrolled_count_참조가_전혀_없다()`가 `CourseCapacityRepository.java`의 `@Query` JPQL 문자열(`c.enrolledCount = c.enrolledCount + 1`/`- 1`, M1 산출물)에 걸려 FAIL한다 — 이 파일이 테스트의 `EXCLUDED_FILES` 목록(`Course.java`/`CourseResponse.java`/`CapacityBelowEnrollmentException.java`)에 없기 때문이다. `git stash`로 M5 변경 전 HEAD(758c4cee, M4 커밋)에서 동일 테스트를 단독 실행한 결과 **동일하게 FAIL**함을 확인했다 — M1부터 존재했고 M5가 유발한 것이 아니다. (b) `CourseAdminStaticAbsenceTest.프로덕션_소스에_대기명단_승격_관련_식별자가_전혀_없다()`가 M4가 도입한 `waitlist` 패키지·`promoteNextEligible`·"승격" 주석에 걸려 FAIL한다 — 이 테스트는 SPEC-COURSE-001(M3) 산출물이며 `src/main/java` 전체를 스캔하는데, 그 시점에는 아직 `waitlist` 패키지가 존재하지 않았다. 동일하게 `git stash`로 HEAD(M4 커밋)에서 단독 실행해 **동일하게 FAIL**함을 확인했다 — M4부터 존재했고 M5와 무관하다. 두 건 모두 이 SPEC(M5)의 델리게이션 범위(course 패키지는 최소 훅만 허용) 밖이므로 이번 마일스톤에서 수정하지 않았다 — 오케스트레이터의 판단이 필요한 별도 이슈로 보고한다.
+4. **정원 증설 요청의 `member_id` NULL 처리는 SPEC 문서에 명시되지 않은 구현 판단**: spec.md §A.4.1은 `enrollment_request` 테이블에 `member_id` 컬럼이 있다고만 기술하고 `CAPACITY_INCREASE`(적재 주체: 관리자 API)의 `member_id` 값을 규정하지 않는다. 기존 컬럼이 `NOT NULL`이었고 관리자 정원 증설은 특정 회원에 귀속되지 않으므로, 이 델리게이션은 `member_id`를 nullable로 완화하고 `CAPACITY_INCREASE`에서 NULL을 적재하는 것으로 판단했다(대안: 관리자 자신의 memberId를 귀속시키는 방안도 있었으나, 이는 `course` 패키지에 인증 컨텍스트를 추가로 꿰뚫어야 해 "최소 훅"이라는 제약을 넘어서고 design.md §8도 그런 귀속을 요구하지 않는다). FK 제약이 없는 순수 Long 컬럼이므로 무결성 위험은 없다 — 다른 요청 종류(`ENROLL`/`CANCEL`)나 기존 조회·중복 검사 로직(`existsByMemberIdAndCourseIdAnd...`)은 전부 ENROLL/CANCEL 전용이라 NULL member_id의 영향을 받지 않음을 확인했다.
+5. **강좌 재개(재`OPEN`) API가 이 SPEC 범위에 없어 AC-ENR-053의 "또한" 절을 테스트 셋업에서 직접 DB 전이로 재현**: `Course` 엔티티에는 `close()`만 있고 재개 메서드가 없다(SPEC-COURSE-001 범위, 이 SPEC이 추가할 근거 없음). AC-ENR-053의 "관리자가 다시 OPEN으로 되돌린 뒤" 절은 워커의 승격 로직(`dispatchCapacityIncrease`) 자체를 검증하는 것이 목적이므로, 테스트에서 `jdbcTemplate.update("UPDATE course SET status = 'OPEN' ...")`로 직접 상태를 전이시켜 그 목적에 집중했다 — M4의 AC-ENR-044 재현(직접 INSERT로 부적격 상태 재현)과 동일한 정당화 패턴이다.
+
+### 다음 단계
+
+Semi-autonomous progression(마일스톤별 확인)에 따라 M5 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M6(마감 정리)로 진행할지 결정한다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_
