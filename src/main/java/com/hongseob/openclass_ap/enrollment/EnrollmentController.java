@@ -1,11 +1,14 @@
 package com.hongseob.openclass_ap.enrollment;
 
 import com.hongseob.openclass_ap.common.exception.InvalidCourseIdException;
+import com.hongseob.openclass_ap.enrollment.dto.EnrollmentListItemResponse;
 import com.hongseob.openclass_ap.enrollment.dto.EnrollmentReceiptResponse;
 import com.hongseob.openclass_ap.enrollment.dto.EnrollmentStatusResponse;
+import com.hongseob.openclass_ap.enrollment.query.EnrollmentListQueryService;
 import com.hongseob.openclass_ap.enrollment.query.EnrollmentStatusQueryService;
 import com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptService;
 import com.hongseob.openclass_ap.member.MemberRepository;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -32,12 +35,15 @@ public class EnrollmentController {
 
     private final EnrollmentReceiptService receiptService;
     private final EnrollmentStatusQueryService statusQueryService;
+    private final EnrollmentListQueryService listQueryService;
     private final MemberRepository memberRepository;
 
     public EnrollmentController(EnrollmentReceiptService receiptService,
-            EnrollmentStatusQueryService statusQueryService, MemberRepository memberRepository) {
+            EnrollmentStatusQueryService statusQueryService, EnrollmentListQueryService listQueryService,
+            MemberRepository memberRepository) {
         this.receiptService = receiptService;
         this.statusQueryService = statusQueryService;
+        this.listQueryService = listQueryService;
         this.memberRepository = memberRepository;
     }
 
@@ -88,6 +94,20 @@ public class EnrollmentController {
         Long memberId = resolveMemberId(authentication);
         Long requestId = receiptService.receiveCancel(memberId, enrollmentId);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new EnrollmentReceiptResponse(requestId));
+    }
+
+    /**
+     * 내 확정 수강신청 목록 조회 API(M7, v0.3.0 개정, REQ-LST-001, design.md §8 —
+     * {@code GET /api/enrollments/mine}). 회원 식별자를 받는 파라미터가 존재하지
+     * 않는다 — 반환 범위는 오직 {@code Authentication}에서 유도한 회원
+     * 식별자로만 결정된다(REQ-LST-003, spec.md §A.6.4). 인증되지 않은 요청은
+     * {@code SecurityConfig}의 {@code anyRequest().authenticated()} 기본
+     * 규칙이 이 메서드에 도달하기 전에 401로 차단한다(REQ-LST-005).
+     */
+    @GetMapping("/api/enrollments/mine")
+    public ResponseEntity<List<EnrollmentListItemResponse>> listMine(Authentication authentication) {
+        Long memberId = resolveMemberId(authentication);
+        return ResponseEntity.ok(listQueryService.listMine(memberId));
     }
 
     /**

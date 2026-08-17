@@ -1,5 +1,6 @@
 package com.hongseob.openclass_ap.enrollment;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -31,4 +32,13 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
     @Query("SELECT e.courseId FROM Enrollment e WHERE e.id = :id AND e.memberId = :memberId AND e.status = :status")
     Optional<Long> findCourseIdByIdAndMemberIdAndStatus(
             @Param("id") Long id, @Param("memberId") Long memberId, @Param("status") EnrollmentStatus status);
+
+    /**
+     * 내 확정 수강신청 목록 조회(M7, REQ-LST-001)가 쓰는 조회 메서드 — 요청자의
+     * 활성 확정({@link EnrollmentStatus#ENROLLED}) 행만 {@code id} 오름차순으로
+     * 반환한다(spec.md §A.6.2). 회원 식별자는 오직 인증 주체에서 유도한 값만
+     * 전달되며, 이 메서드 자체는 어떤 열거 가능한 파라미터도 받지 않는다
+     * (REQ-LST-003).
+     */
+    List<Enrollment> findByMemberIdAndStatusOrderByIdAsc(Long memberId, EnrollmentStatus status);
 }

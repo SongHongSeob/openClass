@@ -1,5 +1,6 @@
 package com.hongseob.openclass_ap.waitlist;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -44,4 +45,13 @@ public interface WaitlistEntryRepository extends JpaRepository<WaitlistEntry, Lo
      * 종단 상태 3종은 이 조회에 나타나지 않는다.
      */
     Optional<WaitlistEntry> findFirstByCourseIdAndStatusOrderByPositionAsc(Long courseId, WaitlistStatus status);
+
+    /**
+     * 내 대기명단 항목 목록 조회(M7, REQ-LST-002)가 쓰는 조회 메서드 — 요청자의
+     * 활성 대기({@link WaitlistStatus#WAITING}) 항목만 {@code position} 오름차순으로
+     * 반환한다(spec.md §A.6.2). 회원 식별자는 오직 인증 주체에서 유도한 값만
+     * 전달되며, 이 메서드 자체는 어떤 열거 가능한 파라미터도 받지 않는다
+     * (REQ-LST-003).
+     */
+    List<WaitlistEntry> findByMemberIdAndStatusOrderByPositionAsc(Long memberId, WaitlistStatus status);
 }

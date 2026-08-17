@@ -1103,32 +1103,112 @@ $ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/Enrollme
 
 ### 다음 단계
 
-M6이 이 SPEC의 마지막 run-phase 마일스톤이다. Semi-autonomous progression에 따라 M6 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인한 뒤 sync-phase(manager-docs/manager-git)로 핸드오프할지 결정한다. §E.3 아래에 run-phase 전체 완료 신호를 기록했다.
+M6이 당시 이 SPEC의 마지막 run-phase 마일스톤이었다. Semi-autonomous progression에 따라 M6 완료 후 **정지**했다. 이후 v0.3.0 제자리 개정(§E.1 "v0.3.0 제자리 개정" 절)으로 M7이 신설되었다 — 아래 M7 절 참고.
+
+### M7 — 보유 내역 조회 (v0.3.0 제자리 개정, 완료)
+
+`DEP-2` 계약 폐쇄(spec.md `## Amendments`, §A.6). M1~M6이 이미 확립한 워커·큐·접수 잠금·승격 헬퍼·`enrolled_count` 변경 경로에는 한 줄도 손대지 않았다 — 이미 존재하는 `Enrollment`·`WaitlistEntry` 행을 읽기만 하는 순수 추가 기능이다.
+
+**신규 산출물**
+
+| 파일 | 역할 |
+|---|---|
+| `enrollment/dto/EnrollmentListItemResponse.java` (신규) | `GET /api/enrollments/mine` 응답 항목 record(`enrollmentId`·`courseId`·`courseTitle`·`status`·`enrolledAt`) |
+| `waitlist/dto/WaitlistListItemResponse.java` (신규) | `GET /api/waitlist-entries/mine` 응답 항목 record(`waitlistEntryId`·`courseId`·`courseTitle`·`position`·`status`) |
+| `enrollment/EnrollmentRepository.java` (수정) | `findByMemberIdAndStatusOrderByIdAsc` 추가 — 기존 2개 메서드(`existsByMemberIdAndCourseIdAndStatus`·`findCourseIdByIdAndMemberIdAndStatus`) 무변경(git diff 확인) |
+| `waitlist/WaitlistEntryRepository.java` (수정) | `findByMemberIdAndStatusOrderByPositionAsc` 추가 — 기존 4개 메서드 무변경(git diff 확인) |
+| `enrollment/query/EnrollmentListQueryService.java` (신규) | 확정 목록 조회, `@Transactional(readOnly = true)`. `CourseRepository.findAllById` 배치 조회로 `courseTitle` 합성 — `Enrollment`에 JPA 연관 추가 없음(plan.md §C.8 결정 3) |
+| `waitlist/WaitlistService.java` (수정) | `listMine` 추가, 생성자에 `CourseRepository` 의존성 신규 주입 — 기존 `cancel()` 본문 무변경(git diff 확인) |
+| `enrollment/EnrollmentController.java` (수정) | `GET /api/enrollments/mine` 추가 — 기존 3개 엔드포인트(`receive`/`getStatus`/`cancel`) 무변경 |
+| `waitlist/WaitlistController.java` (수정) | `GET /api/waitlist-entries/mine` 추가 — 기존 `cancel` 무변경 |
+| `enrollment/EnrollmentAggregateBoundaryArchitectureTest.java` (수정) | AC-ENR-009 (ii) 구조 검증 2건에 `enrollment.query` 패키지 예외 추가(M3의 큐 저장소 예외, M4의 확정 저장소 예외에 이은 3번째 선례) + Javadoc "M7 예외 추가 근거" 절 |
+| 신규 통합 테스트 클래스 5개 | `EnrollmentListQueryApiIntegrationTest`(AC-ENR-054), `WaitlistListQueryApiIntegrationTest`(AC-ENR-055), `EnrollmentHoldingsListToCancelContractIntegrationTest`(AC-ENR-056), `EnrollmentHoldingsListSecurityIntegrationTest`(AC-ENR-057), `EnrollmentHoldingsListSideEffectFreeIntegrationTest`(AC-ENR-058) — 총 9개 테스트 메서드 |
+
+**REQ-LST-001~006 + INV-ENR-010 추적성**
+
+| 요구사항/불변식 | 검증 AC/테스트 |
+|---|---|
+| REQ-LST-001(확정 목록, 활성만, `enrollmentId` 오름차순) | AC-ENR-054 — `내_활성_확정_목록만_enrollmentId_오름차순으로_반환하고_타인_행과_취소된_행은_섞이지_않는다()` + 빈 목록 케이스 |
+| REQ-LST-002(대기 목록, 활성만, `position` 오름차순) | AC-ENR-055 — `내_활성_대기_항목만_position_오름차순으로_반환하고_승격된_행과_타인_행은_섞이지_않는다()` + 빈 목록 케이스 |
+| REQ-LST-003(회원 식별자 입력 파라미터 0개, 인증 주체 단독 유도) | AC-ENR-057 (ii)+(iii) — 쿼리 파라미터 무시 확인 + 핸들러 시그니처 리플렉션(`@PathVariable`/`@RequestParam`/`@RequestBody` 0개) |
+| REQ-LST-004(부작용 없는 읽기 전용, 3개 테이블·`enrolled_count` 무변경) | AC-ENR-058 — 20회×2 API 반복 호출 후 행 수·상태값·`enrolled_count` 정확히 동일 |
+| REQ-LST-005(미인증 401) | AC-ENR-057 (i) — `Authorization` 헤더 없이 두 API 401, 본문에 보유 내역 미노출 |
+| REQ-LST-006(목록 조회 식별자 = 취소 API가 받는 식별자와 동일) | AC-ENR-056 — 목록 조회 응답에서 꺼낸 `enrollmentId`/`waitlistEntryId`만으로 실제 취소 성립(`CANCELLED`, `REJECTED` 아님) |
+| INV-ENR-010(타 회원 식별자 정보 조회 불가, 구조적) | AC-ENR-057 — 위 (ii)+(iii) |
+
+**AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령(격리 실행) | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-054 | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentListQueryApiIntegrationTest"` | `build/test-results/test/TEST-...EnrollmentListQueryApiIntegrationTest.xml` → `tests="2" skipped="0" failures="0" errors="0"` |
+| AC-ENR-055 | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.waitlist.WaitlistListQueryApiIntegrationTest"` | `tests="2" skipped="0" failures="0" errors="0"` |
+| AC-ENR-056 | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentHoldingsListToCancelContractIntegrationTest"` | `tests="1" skipped="0" failures="0" errors="0"` |
+| AC-ENR-057 | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentHoldingsListSecurityIntegrationTest"` | `tests="3" skipped="0" failures="0" errors="0"` |
+| AC-ENR-058 | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentHoldingsListSideEffectFreeIntegrationTest"` | `tests="1" skipped="0" failures="0" errors="0"` |
+
+**M7 완료 조건 재확인(plan.md §F M7)**: AC-ENR-056과 AC-ENR-057이 함께 PASS — 목록 조회 → 취소 계약이 실제로 닫혔고(REJECTED가 아니라 CANCELLED로 종결), 미인증·타인 데이터 격리가 구조적으로 확인되었다. AC-ENR-058(무부작용)도 PASS — INV-ENR-002가 이 개정으로 훼손되지 않았다.
+
+**빌드 및 테스트 검증**
+
+```
+$ ./gradlew compileJava compileTestJava   → BUILD SUCCESSFUL, exit 0 (2회 확인, 신규 파일 추가 전/후)
+```
+
+- ArchUnit 회귀(격리 실행): `EnrollmentAggregateBoundaryArchitectureTest` → `tests="4" failures="0" errors="0"` (M7이 명칭을 바꾼 2개 메서드 포함 — `EnrollmentRepository는_워커와_접수와_조회_패키지에서만_참조된다`, `Enrollment_애그리게이트는_워커와_조회_패키지에서만_참조된다`), `EnrollmentQueueBoundaryArchitectureTest` → `tests="1" failures="0" errors="0"`
+- M1~M6 회귀 표본(전부 격리 실행, plan.md §F M7 "회귀 조건"): `EnrollmentReceiptApiIntegrationTest` `tests="3"`, `EnrollmentStatusQueryApiIntegrationTest` `tests="5"`, `EnrollmentCancelApiIntegrationTest` `tests="4"`, `WaitlistEntryCancelIntegrationTest` `tests="2"`, `WaitlistPositionAssignmentIntegrationTest` `tests="3"`, `WaitlistDuplicatePreventionIntegrationTest` `tests="3"` — 전부 `failures="0" errors="0"`, 무손상 확인
+- **환경 플레이키니스(코드 결함 아님, project memory에도 기록)**: 신규 테스트 3개 클래스를 한 번의 `./gradlew test` 호출로 함께 실행하자 `CannotCreateTransactionException`/`ConnectException`(Docker Testcontainers 연결 고갈, M4~M6이 이미 관측한 것과 동일 패턴)으로 4/5 실패했다 — 동일한 3개 클래스를 각각 격리 실행하면 위 매트릭스처럼 전부 PASS한다. 대형 배치(전체 `enrollment.*`+`waitlist.*`)도 별도 시도에서 동일하게 실패했다.
+
+**정적 검증**
+
+```
+$ grep -rn "AskUserQuestion" src/main/java/.../enrollment src/main/java/.../waitlist src/test/java/.../enrollment src/test/java/.../waitlist
+(출력 없음 — exit 1, 매치 0건)
+
+$ git diff --stat -- src/main/java/.../member src/main/java/.../common/config/SecurityConfig.java src/main/java/.../course
+(출력 없음 — PRESERVE 대상 무변경)
+```
+
+- 린트 도구 미설정 — REQ-NFR-006 "린트에러 0건" 절이 M6에서 이미 기록한 것과 동일하게 vacuously true(도구 자체가 없음)
+
+**커버리지**
+
+패키지 단위 jacoco 누적 집계는 이번 세션도 안정적으로 얻지 못했다 — M4·M5·M6에 이은 **4회 연속 재현**(잔여 위험 1번). 신규 테스트 3개 클래스 소배치 실행이 `CannotCreateTransactionException`으로 실패했고, `jacocoTestReport` 단독 호출도 이전 `test` 태스크의 `GradleWorkerMain` 잔류 프로세스로 정체되어 완료하지 못했다(M6 잔여 위험 1번이 이미 규명한 "연속 격리 재실행의 누적 Docker 자원 고갈" 패턴과 일치). 대신 위 AC PASS 매트릭스(9개 신규 테스트 메서드, 전부 격리 실행 PASS)가 기능적 정확성의 증거다 — `EnrollmentListQueryService.listMine`·`WaitlistService.listMine`·두 컨트롤러의 `listMine` 핸들러·두 저장소의 신규 조회 메서드 각각이 054/056/058 세 테스트 클래스에 걸쳐 서로 다른 경로로 반복 실행되었다(054는 목록 형태, 056은 목록→취소 연쇄, 058은 20회 반복 무부작용).
+
+**잔여 위험 (Residual Risk)**
+
+1. **jacoco 패키지 단위 커버리지 집계 4회 연속(M4~M7) 미확보**: M6이 이미 근본 원인을 "연속된 격리 재실행 자체가 로컬 Docker 데몬의 연결 풀을 서서히 고갈시키는 누적 효과"로 규명하고 CI 환경 재시도를 권장했다(progress.md M6 잔여 위험 1번). M7은 이 관찰을 그대로 재확인했을 뿐 새로운 원인을 추가하지 않는다.
+2. **`enrollment.query` 패키지의 `Enrollment`/`EnrollmentRepository` 참조 예외 표면 확대**: M7 이전에는 `enrollment.query`가 `EnrollmentRequestRepository`만 참조했으나(M3), 이번 개정으로 `EnrollmentRepository`/`Enrollment` 엔티티도 참조하게 되었다. 두 서비스(`EnrollmentStatusQueryService`, `EnrollmentListQueryService`) 모두 `@Transactional(readOnly = true)`이고, 워커 밖에서 `Enrollment`에 쓰기 메서드(`cancel()` 등)를 호출하는 경로가 없다는 것은 `EnrollmentAggregateBoundaryArchitectureTest`의 나머지 2개 구조 검증(매핑 제약, `CourseCapacityRepository` 참조 제한)이 계속 감시한다 — 이번 예외는 읽기 경로만 넓혔다.
+3. **`WaitlistService`에 `CourseRepository` 의존성 신규 주입**: M4까지 `WaitlistService`는 `WaitlistEntryRepository` 단일 의존성이었으나, M7의 `courseTitle` 합성을 위해 `CourseRepository`를 추가했다. `course` 패키지 파일 자체는 무변경(git diff 확인)이며 읽기 전용 `findAllById` 호출뿐이라 위험은 낮지만, `waitlist` 패키지가 이제 `course` 패키지에 의존한다는 점은 기록해 둔다.
+
+**다음 단계**
+
+M7이 이 v0.3.0 개정의 마지막(그리고 유일한) run-phase 마일스톤이다. spec.md §D.4 완료 정의의 "AC-ENR-001~058이 전부 통과한다" 조건이 이번 기록으로 충족된다 — M1~M6(AC-001~053)은 §E.3의 기존 기록, M7(AC-054~058)은 이번 §E.2 기록이다. §E.3 아래에 갱신된 run-phase 전체 완료 신호를 기록했다. 오케스트레이터가 사용자와 확인한 뒤 sync-phase(manager-docs/manager-git)로 핸드오프할지 결정한다.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
 run_status: audit-ready
 run_complete_at: 2026-08-17
-run_commit_sha: be0cd73e6341a259bbe7e3031f5067239c0d16fe  # M6 커밋(D3 예외 — 자기 참조 해저드로 인한 사후 백필)
-milestones_complete: [M1, M2, M3, M4, M5, M6]
-ac_scope: AC-ENR-001..AC-ENR-053  # acceptance.md §D.2 매트릭스 전체 범위
-ac_pass_count: 53  # M1~M6 전체 AC PASS 매트릭스 누적(acceptance.md §D.2와 대조)
+run_commit_sha: pending-backfill-m7  # M7 커밋(D3 예외 — 자기 참조 해저드로 인한 사후 백필). M1~M6 종전 값 be0cd73e6341a259bbe7e3031f5067239c0d16fe는 아래 known_residual_risks에 이력으로 보존
+milestones_complete: [M1, M2, M3, M4, M5, M6, M7]
+ac_scope: AC-ENR-001..AC-ENR-058  # v0.3.0 개정 반영 — acceptance.md §D.2 매트릭스 전체 범위(58건)
+ac_pass_count: 58  # M1~M6(53) + M7(AC-ENR-054~058, 5건) 누적. M7 5건 전부 이번 §E.2 기록에서 PASS
 ac_fail_count: 0
-ac_pass_with_debt_count: 1  # AC-ENR-049 — jacoco 패키지 단위 집계 미확보(§E.2 M6 커버리지 절 참고, 클래스 단위 대체 증거로 PASS-WITH-DEBT)
-requirements_scope: REQ-QUE-001..REQ-NFR-006  # spec.md §B 전체(53건) — invariants 9건 별도
-invariants_scope: INV-ENR-001..INV-ENR-009
-new_warnings_or_lints_introduced: false  # 린트 도구 미설정(REQ-NFR-006 관찰, §E.2 M6 정적 검증 절)
+ac_pass_with_debt_count: 1  # AC-ENR-049 — jacoco 패키지 단위 집계 미확보(M6 §E.2 커버리지 절, 클래스 단위 대체 증거로 PASS-WITH-DEBT). M7의 054~058은 PASS-WITH-DEBT 아님 — 격리 실행 매트릭스로 전건 확인
+requirements_scope: REQ-QUE-001..REQ-LST-006  # v0.3.0 개정 반영 — spec.md §B 전체(59건: 기존 53건 + REQ-LST-001~006) — invariants 10건 별도
+invariants_scope: INV-ENR-001..INV-ENR-010  # v0.3.0 개정 반영 — INV-ENR-010 신설
+new_warnings_or_lints_introduced: false  # 린트 도구 미설정(REQ-NFR-006 관찰, M6 §E.2 정적 검증 절 — M7도 동일)
 cross_platform_build:
   compileJava: PASS
   compileTestJava: PASS
   windows_cross_compile: not_applicable  # Java/Gradle 프로젝트 — Go GOOS 교차 컴파일 개념이 적용되지 않음
-total_run_phase_files: "production 20+ (enrollment/waitlist 신규+수정) + test 30+ (M1~M6 누적)"  # 정확한 카운트는 git diff main..HEAD --stat 참고, sync-phase에서 재확인 권장
-m1_to_m6_commit_strategy: per-milestone separate commits  # 마일스톤별 커밋 6건(M1~M6), 각각 push
+total_run_phase_files: "production 22+ (enrollment/waitlist 신규+수정, M7 신규 2 + 수정 6 포함) + test 35+ (M1~M7 누적, M7 신규 5)"  # 정확한 카운트는 git diff main..HEAD --stat 참고, sync-phase에서 재확인 권장
+m1_to_m7_commit_strategy: per-milestone separate commits  # 마일스톤별 커밋 — M1~M6 6건 + M7 1건(plan-phase 개정 커밋 별도)
 known_residual_risks:
-  - "jacoco 패키지 단위 커버리지 집계 3회 연속(M4/M5/M6) 미확보 — 클래스 단위 개별 실행 수치로 대체, CI 환경에서 재시도 권장"
+  - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4/M5/M6/M7) 미확보 — 클래스 단위 개별 실행 수치로 대체, CI 환경에서 재시도 권장(M6에서 근본 원인 규명 완료 — 연속 격리 재실행의 누적 Docker 자원 고갈)"
   - "course 패키지 사전 존재 결함 2건(CourseEnrolledCountMutationAbsenceTest, CourseAdminStaticAbsenceTest) — M6 위임 범위 밖, 별도 이슈로 보고 필요(HEAD 6316875에서 이미 수정된 것으로 관찰됨, sync-phase에서 확인 권장)"
   - "린트 도구 미설정 — REQ-NFR-006 해당 절이 vacuously true, 향후 도구 도입 시 별도 SPEC 필요"
+  - "enrollment.query 패키지의 Enrollment/EnrollmentRepository 참조 예외 표면 확대(M7) — 읽기 전용 한정, §E.2 M7 잔여 위험 2번 참고"
 sync_phase_ready: true
 ```
 

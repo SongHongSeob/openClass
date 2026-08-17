@@ -1,6 +1,12 @@
 package com.hongseob.openclass_ap.waitlist;
 
 import com.hongseob.openclass_ap.common.exception.WaitlistEntryNotFoundException;
+import com.hongseob.openclass_ap.course.Course;
+import com.hongseob.openclass_ap.course.CourseRepository;
+import com.hongseob.openclass_ap.waitlist.dto.WaitlistListItemResponse;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,9 +25,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class WaitlistService {
 
     private final WaitlistEntryRepository waitlistEntryRepository;
+    private final CourseRepository courseRepository;
 
-    public WaitlistService(WaitlistEntryRepository waitlistEntryRepository) {
+    public WaitlistService(WaitlistEntryRepository waitlistEntryRepository, CourseRepository courseRepository) {
         this.waitlistEntryRepository = waitlistEntryRepository;
+        this.courseRepository = courseRepository;
     }
 
     /**
@@ -42,5 +50,39 @@ public class WaitlistService {
                 .filter(found -> found.getStatus() == WaitlistStatus.WAITING)
                 .orElseThrow(() -> new WaitlistEntryNotFoundException(entryId));
         entry.cancel();
+    }
+
+    /**
+     * 내 대기명단 항목 목록 조회(M7, v0.3.0 개정 — REQ-LST-002, spec.md §A.6).
+     * 요청자 본인의 활성 대기({@link WaitlistStatus#WAITING}) 항목만 {@code
+     * position} 오름차순으로 반환한다. 부작용 없는 읽기 전용 조회다
+     * (REQ-LST-004, AC-ENR-058) — 순번 재계산·승격·취소 등 어떤 도메인
+     * 변경도 이 메서드가 수행하지 않는다.
+     *
+     * <p>{@code courseTitle}은 {@link com.hongseob.openclass_ap.enrollment.query.EnrollmentListQueryService}와
+     * 동일한 방식으로 {@link CourseRepository} 배치 조회로 합친다 — {@link
+     * WaitlistEntry}에 JPA 연관을 추가하지 않는다(plan.md §C.8 결정 3).</p>
+     */
+    @Transactional(readOnly = true)
+    public List<WaitlistListItemResponse> listMine(Long memberId) {
+        List<WaitlistEntry> entries =
+                waitlistEntryRepository.findByMemberIdAndStatusOrderByPositionAsc(memberId, WaitlistStatus.WAITING);
+
+        Map<Long, String> courseTitleById = courseTitleById(entries);
+
+        return entries.stream()
+                .map(entry -> new WaitlistListItemResponse(
+                        entry.getId(),
+                        entry.getCourseId(),
+                        courseTitleById.get(entry.getCourseId()),
+                        entry.getPosition(),
+                        entry.getStatus().name()))
+                .toList();
+    }
+
+    private Map<Long, String> courseTitleById(List<WaitlistEntry> entries) {
+        List<Long> courseIds = entries.stream().map(WaitlistEntry::getCourseId).distinct().toList();
+        return courseRepository.findAllById(courseIds).stream()
+                .collect(Collectors.toMap(Course::getId, Course::getTitle, (left, right) -> left));
     }
 }
