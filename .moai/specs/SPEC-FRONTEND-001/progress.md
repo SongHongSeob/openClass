@@ -531,7 +531,36 @@ sync_phase_ready: true
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-08-18
+sync_commit_sha: pending-backfill  # orchestrator backfills after this commit lands (self-referential-hazard convention)
+sync_files_touched:
+  - CHANGELOG.md
+  - README.md
+  - .moai/specs/SPEC-FRONTEND-001/spec.md
+  - .moai/specs/SPEC-FRONTEND-001/progress.md
+frontmatter_transition:
+  spec_md: "in-progress -> completed"
+  note: >
+    위임 지시는 spec.md frontmatter가 status: draft이며 draft->in-progress
+    전환이 기록되지 않은 것으로 전제했으나, 실제 파일을 읽어 확인한 결과
+    spec.md는 이미 status: in-progress였다(진입 시점 수동 확인 결과, 위임
+    당시 전제와 불일치 — 사전 draft->in-progress 갭 자체가 존재하지
+    않았다). 이 sync 커밋은 표준적인 in-progress -> completed 단일 전환만
+    수행했으며, 어떤 중간 상태도 건너뛰지 않았다. 오케스트레이터에게
+    이 불일치를 명시적으로 플래그한다.
+changelog_entry_position: "CHANGELOG.md [Unreleased] 섹션 말미 (SPEC-ENROLLMENT-001 Known Limitations 다음)"
+b12_self_test:
+  pre_emission_grep: "grep -c 'SPEC-FRONTEND-001' CHANGELOG.md (편집 전) -> 1 (진행 참조, SPEC-FRONTEND-001 자신의 섹션 아님) -> 신규 섹션 추가 진행"
+  ac_count_match: "acceptance.md AC-FE-* 행 86건 == progress.md §E.3 ac_scope 86건 == CHANGELOG Verification 절 86건 명시"
+  file_path_verification: "frontend/src/{api,session,catalog,enrollment,admin,cancellation}/ 및 App.tsx 전부 ls로 실재 확인 완료"
+frontend_quality_gate:
+  tsc: "npx tsc -b --force exit=0"
+  lint: "npm run lint (oxlint) exit=0"
+  vitest: "npx vitest run exit=0 -- 15 files, 114 tests passed"
+  build: "npm run build exit=0"
+```
 
 ---
 
