@@ -30,6 +30,18 @@ import org.hibernate.annotations.ColumnDefault;
  * 정의하지 않는다 — 정적 팩토리 {@link #create}가 파라미터로 받지 않고 항상 0
  * (DB {@code DEFAULT 0})으로 시작하는 것이 그 방어의 실체다. 변경 권한은
  * {@code SPEC-ENROLLMENT-001}의 큐 워커가 단독으로 갖는다.</p>
+ *
+ * <p><b>{@code enrolled_count} 필드에 {@code updatable = false}가 붙어 있는 이유</b>
+ * (SPEC-ENROLLMENT-001 sync-audit F1): {@code @DynamicUpdate}가 없는 이 엔티티는
+ * dirty 상태로 커밋되면 Hibernate가 updatable한 전 컬럼을 UPDATE SET 절에
+ * 포함시킨다. 관리자가 {@link CourseService#update}로 이 엔티티를 로드해 제목만
+ * 수정하는 동안, 워커({@code CourseCapacityRepository})가 별도 트랜잭션의 JPQL
+ * 벌크 UPDATE로 {@code enrolled_count}를 증가시키고 먼저 커밋하면, 관리자
+ * 트랜잭션의 커밋이 그 증가분을 로드 시점 스냅샷 값으로 덮어써 워커의 정원
+ * 게이트(단일 관문 ②, AC-ENR-010)를 우회하는 과소 계상을 만들 수 있었다.
+ * {@code updatable = false}는 이 필드를 엔티티 dirty-checking UPDATE의 SET 절에서
+ * 구조적으로 제외한다 — {@code CourseCapacityRepository}의 JPQL 벌크 UPDATE는
+ * 엔티티 dirty-checking을 거치지 않는 별도 경로이므로 영향받지 않는다.</p>
  */
 @Entity
 @Table(name = "course")
@@ -54,7 +66,7 @@ public class Course {
     @Column(nullable = false)
     private Integer capacity;
 
-    @Column(name = "enrolled_count", nullable = false)
+    @Column(name = "enrolled_count", nullable = false, updatable = false)
     @ColumnDefault("0")
     private Integer enrolledCount;
 

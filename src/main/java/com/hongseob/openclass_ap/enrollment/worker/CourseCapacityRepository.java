@@ -1,0 +1,58 @@
+package com.hongseob.openclass_ap.enrollment.worker;
+
+import com.hongseob.openclass_ap.course.Course;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+/**
+ * {@code course.enrolled_count} 증가 전용 게이트웨이 — design.md §7 패키지 구조
+ * "Enrollment 생성·enrolled_count 변경은 여기서만"의 실제 구현체다.
+ *
+ * <p>{@link Course} 엔티티 자체에는 이 값을 바꾸는 세터·메서드가 의도적으로
+ * 존재하지 않는다(course 패키지는 이 SPEC의 PRESERVE 대상 — {@code Course.java}
+ * 클래스 주석 "변경 권한은 SPEC-ENROLLMENT-001의 큐 워커가 단독으로 갖는다"
+ * 참고). 그래서 이 SPEC의 워커 패키지가 이 저장소를 통해 JPQL UPDATE로
+ * {@code course} 패키지 파일을 전혀 수정하지 않고 원자적 정원 게이트(WHERE
+ * enrolled_count &lt; capacity)를 직접 수행한다. 이 방식은 course 패키지
+ * PRESERVE 경계를 지키면서 INV-ENR-002("확정 경로 = 워커 1개소")를 만족시키는
+ * 방법이며, 동시에 {@code Course} 엔티티의 세터 부재라는 기존 설계를 그대로
+ * 보존한다.</p>
+ *
+ * <p>단일 워커 인스턴스 전제(REQ-WRK-012)에서는 요청이 순차적으로 한 건씩
+ * 처리되므로 이 WHERE 가드 없이도 경쟁 조건이 발생하지 않지만, DB 최종
+ * 방어선(REQ-WRK-014)과 일관되게 방어적으로 유지한다.</p>
+ *
+ * <p>M1 범위: {@code ENROLL} 확정 시 증가만 지원한다. {@code CANCEL} 처리 시
+ * 감소는 M4가, 정원 증설 시 반복 증가는 M5가 재사용한다(plan.md §F).</p>
+ *
+ * <p><b>{@code clearAutomatically}를 의도적으로 켜지 않는다</b>
+ * (SPEC-ENROLLMENT-001 sync-audit F5 검토, 되돌림): stale 엔티티 방어 목적으로
+ * 시도했으나, 같은 트랜잭션 안에서 이 벌크 UPDATE 직후에 이어지는 워커의
+ * 나머지 처리(확정 {@code Enrollment} 생성, {@code EnrollmentRequest} 상태 갱신)가
+ * 영속성 컨텍스트 초기화로 인해 깨지는 회귀가 실측으로 확인되었다
+ * (AC-ENR-010 오버셀 방지 테스트가 즉시 실패 — 격리 재현 6초, 연결 타임아웃
+ * 패턴 아님). 이 트랜잭션 경계 안에서는 {@code Course} 재조회가 없으므로
+ * stale-엔티티 위험이 애초에 발생하지 않는다 — 위험이 없는 곳에 방어를
+ * 추가하다 실제 결함을 만든 사례로 남긴다.</p>
+ */
+public interface CourseCapacityRepository extends JpaRepository<Course, Long> {
+
+    @Modifying
+    @Query("UPDATE Course c SET c.enrolledCount = c.enrolledCount + 1 "
+            + "WHERE c.id = :courseId AND c.enrolledCount < c.capacity")
+    int incrementEnrolledCountIfAvailable(@Param("courseId") Long courseId);
+
+    /**
+     * {@code CANCEL} 처리 시 감소 전용(M4, REQ-WL-003). {@code
+     * enrolled_count > 0} 가드는 증가 쪽과 대칭인 방어적 하한선이다 — 단일
+     * 워커 인스턴스 전제(REQ-WRK-012)에서 이미 0인 강좌를 취소 대상으로
+     * 다시 처리하는 경로는 없지만(취소 대상은 항상 {@code ENROLLED} 확정
+     * 1건에 대응하므로), DB 최종 방어선(REQ-WRK-014)과 일관되게 유지한다.
+     */
+    @Modifying
+    @Query("UPDATE Course c SET c.enrolledCount = c.enrolledCount - 1 "
+            + "WHERE c.id = :courseId AND c.enrolledCount > 0")
+    int decrementEnrolledCountIfPositive(@Param("courseId") Long courseId);
+}

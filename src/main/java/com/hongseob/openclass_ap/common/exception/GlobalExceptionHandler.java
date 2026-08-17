@@ -51,4 +51,47 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(ErrorResponse.of("CAPACITY_BELOW_ENROLLMENT", ex.getMessage()));
     }
+
+    /**
+     * 존재하지 않거나 본인 소유가 아닌 신청 요청 조회를 404로 거부한다(M3,
+     * REQ-STS-002, AC-ENR-025). 두 경우를 구분하지 않는 것이 의도다 — IDOR
+     * 방지를 위해 요청의 존재 여부 자체를 노출하지 않는다.
+     */
+    @ExceptionHandler(EnrollmentRequestNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleEnrollmentRequestNotFound(EnrollmentRequestNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("ENROLLMENT_REQUEST_NOT_FOUND", ex.getMessage()));
+    }
+
+    /**
+     * 존재하지 않거나 본인 소유가 아니거나 이미 취소된 확정 수강신청 취소
+     * 요청을 404로 거부한다(M4, REQ-CNL-002, AC-ENR-036 — 감사 D12 IDOR
+     * 방지).
+     */
+    @ExceptionHandler(EnrollmentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleEnrollmentNotFound(EnrollmentNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("ENROLLMENT_NOT_FOUND", ex.getMessage()));
+    }
+
+    /**
+     * 존재하지 않거나 본인 소유가 아니거나 이미 종단 상태인 대기명단 항목
+     * 취소 요청을 404로 거부한다(M4, REQ-WL-008, AC-ENR-034).
+     */
+    @ExceptionHandler(WaitlistEntryNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleWaitlistEntryNotFound(WaitlistEntryNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("WAITLIST_ENTRY_NOT_FOUND", ex.getMessage()));
+    }
+
+    /**
+     * 형식적으로 유효하지 않은 강좌 식별자(0 이하)로 접수를 요청하면 DB
+     * 조회 이전에 400으로 거부한다(M6, REQ-NFR-003, AC-ENR-046). 존재하지
+     * 않는 강좌(404, {@link CourseNotFoundException})와 구분된다.
+     */
+    @ExceptionHandler(InvalidCourseIdException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCourseId(InvalidCourseIdException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of("INVALID_COURSE_ID", ex.getMessage()));
+    }
 }

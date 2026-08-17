@@ -1,10 +1,10 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — 구현 계획"
-version: "0.2.2"
-status: draft
+version: "0.3.0"
+status: completed
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-17
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -17,6 +17,8 @@ tier: L
 # SPEC-ENROLLMENT-001 — 구현 계획 (plan)
 
 > **읽는 순서 안내**: §C는 **되돌리기 어려운 순서**로 배치했다. §C.2(접수 순서 보장)와 §C.3(취소·승격 원자성)이 이 SPEC의 핵심이며, 최초 감사에서 지적된 두 개의 치명적 결함을 각각 닫는다. 리뷰는 §C.2 → §C.3 → §C.4 순으로 집중하는 것이 효율적이다.
+>
+> **v0.3.0 제자리 개정(M7)만 검토하는 경우**: §A.3(개정 배경) → **§C.8(조회 엔드포인트 설계 — 이 개정에서 가장 바뀔 가능성이 높은 결정)** → §F M7 순으로 읽으면 된다. M1~M6 관련 절(§A.1·§A.2·§C.1~§C.7·§F M1~M6)은 이 개정에서 **한 글자도 바뀌지 않았다.**
 
 ---
 
@@ -59,6 +61,20 @@ plan-auditor 2회차 감사는 **PASS(0.92 / Tier L 임계 0.85)** 였고, must-
 | **N2** (범위 정합성) | REQ-QUE-003은 접수 잠금을 "접수 트랜잭션"에만 요구했으나 AC-ENR-005는 **모든** 큐 INSERT 경로를 검증했다 | 요구사항을 AC 쪽으로 **확장**(3종 적재 경로 전부). 근거는 아래 §C.2 참조 | spec.md, design.md |
 | **N6** (제약 누락) | §D "신규 인프라 추가 금지"가 ArchUnit 도입(§E 6번)의 예외 근거를 기록하지 않았다 | §D에 예외 각주 추가 — 테스트 스코프 의존성이며 `SPEC-COURSE-001` plan.md D3 결정 근거가 이 SPEC의 도입을 이미 예정 | plan.md |
 
+### A.3 v0.3.0 제자리 개정 — `DEP-2` 계약 폐쇄 (M7)
+
+M1~M6이 완료되고 sync까지 끝난 뒤, 후속 `SPEC-FRONTEND-001`의 계획 단계 조사에서 **이 SPEC의 계약 공백**이 발견되었다. 발견의 전문과 기각한 우회안 4종은 `.moai/specs/SPEC-FRONTEND-001/research.md` §3(`DEP-2`)에, 개정 선언과 사유는 spec.md `## Amendments`에 있다.
+
+| 항목 | 내용 |
+|---|---|
+| **무엇이 빠져 있었나** | 취소 엔드포인트 2종이 `enrollmentId`·`waitlistEntryId`를 경로 변수로 요구하는데, **이 SPEC의 어떤 응답도 그 값을 반환하지 않는다.** `EnrollmentStatusResponse`가 담은 `requestId`는 큐 요청 행의 식별자로 다른 테이블의 독립 시퀀스다 |
+| **왜 프론트엔드가 못 푸나** | 우회안 4종(사용자 직접 입력 / 순차 열거 / `requestId`에서 유도 / 클라이언트 로컬 축적)이 전부 기각. 특히 앞의 둘은 화면을 열거 시도 표면으로 만들고, 마지막은 **축적할 값 자체가 클라이언트에 한 번도 전달되지 않아** 성립하지 않는다 |
+| **왜 이 SPEC이 고치나** | REQ-CNL-001·REQ-WL-007이 회원 본인의 취소 권리를 규정해 놓고 그 입력값 획득 경로를 정의하지 않은 것 — **결함의 소유자가 이 SPEC이다.** 후속 SPEC이 우회로 덮을 문제가 아니다 |
+| **개정 형태** | 후속 SPEC(`* → superseded`)이 아니라 **제자리 개정**(`completed → in-progress`, `amendment_of` 자기 참조). M1~M6의 설계·요구사항·인수 기준이 전부 유효하고 그 위에 읽기 전용 조회만 얹기 때문이다 |
+| **변경 성격** | **추가만.** REQ-LST-001~006 / INV-ENR-010 / AC-ENR-054~058 신설. 기존 REQ·INV·AC 변경 0건, 기존 코드 동작 변경 0건 |
+
+**이 개정이 건드리지 않는 것 (M7 구현자에 대한 구속)**: 워커, 큐, 접수 잠금, 승격 헬퍼, `enrolled_count` 변경 경로. §C.2·§C.3·§C.4가 세운 방어선은 전부 그대로다. M7은 이미 존재하는 행을 읽기만 한다.
+
 ---
 
 ## §B 범위 (Scope)
@@ -67,7 +83,8 @@ plan-auditor 2회차 감사는 **PASS(0.92 / Tier L 임계 0.85)** 였고, must-
 |---|---|
 | `enrollment_request` 큐 테이블 + 접수 잠금 | 회원·인증·JWT → `SPEC-AUTH-001` |
 | `EnrollmentQueueWorker` 순차 처리 | 강좌 엔티티·카탈로그·관리자 CRUD 기본 → `SPEC-COURSE-001` |
-| 접수 / 상태 조회 / 취소 API | 프론트엔드 → `SPEC-FRONTEND-001` (**아직 생성하지 않음**) |
+| 접수 / 상태 조회 / 취소 API | 프론트엔드 → `SPEC-FRONTEND-001` (**계획 단계 진행 중**) |
+| **내 확정·대기 보유 내역 조회 API 2종** (v0.3.0 개정, M7) | **보유 내역의 이력 조회·페이지네이션·관리자 타인 조회** → 범위 밖 (spec.md §D) |
 | 대기명단 등록·취소·자동 승격 | |
 | 정원 증설 시 승격 (관리자 API 확장) | |
 
@@ -165,8 +182,38 @@ plan-auditor 2회차 감사는 **PASS(0.92 / Tier L 임계 0.85)** 였고, must-
 
 - 사용자 결정(**백엔드 우선**)에 따라 React 스캐폴딩을 생성하지 않는다.
 - 모든 인수 기준은 Spring Boot 테스트만으로 검증 가능하며, AC-ENR-048이 이를 기계적으로 확인한다.
-- 후속 `SPEC-FRONTEND-001`(**아직 생성하지 않음 — 향후 계획**)이 이 SPEC의 접수·상태 조회·취소 API를 소비하고 short-polling UI를 구현할 예정이다.
+- 후속 `SPEC-FRONTEND-001`(**계획 단계 진행 중** — v0.3.0 개정 시점 기준)이 이 SPEC의 접수·상태 조회·보유 내역 조회·취소 API를 소비하고 short-polling UI를 구현할 예정이다.
 - CORS 설정은 프론트엔드 착수 시점에 실제 오리진이 정해진 뒤 추가한다.
+
+### C.8 보유 내역 조회 엔드포인트 — v0.3.0 개정의 유일한 설계 결정 (M7)
+
+> **이 개정에서 되돌리기 가장 어려운 결정이자 가장 바뀔 가능성이 높은 결정이다** — 공개 API 표면이고 후속 `SPEC-FRONTEND-001`이 곧 소비하기 때문이다. 개정 리뷰는 여기에 집중하는 것이 맞다. 결정의 규범적 형태는 spec.md §A.6에 있고, 여기에는 **판단과 근거**를 적는다.
+
+**결정 1 — 목록 조회 2종 (`GET /api/enrollments/mine`, `GET /api/waitlist-entries/mine`)**
+
+| 후보 | 평가 |
+|---|---|
+| **목록 조회 2종 (채택)** | 취소 경로와 리소스 접두사가 일치해 조회↔취소 대응이 경로만 보고 드러난다. 각 엔드포인트가 이미 그 리소스를 소유한 컨트롤러(`EnrollmentController`·`WaitlistController`)에 자연히 들어가 새 컨트롤러·새 패키지가 필요 없다 |
+| `EnrollmentStatusResponse`에 식별자 2개 추가 | 기각. 변경량은 최소지만 **`requestId`를 보관 중인 클라이언트만** 취소할 수 있다. 새 탭·다른 기기 사용자는 여전히 취소 불가 — 공백이 절반만 닫힌다 |
+| 통합 엔드포인트 1종 (`GET /api/members/me/enrollments`가 확정+대기를 함께 반환) | 기각. 두 리소스가 서로 다른 패키지(`enrollment`·`waitlist`)에 있어 한 컨트롤러가 양쪽을 조립하면 §7 패키지 경계를 가로지른다. 응답 형태도 이질적 항목의 합집합이 되어 클라이언트 분기가 늘어난다 |
+| `/api/me/...` 새 접두사 | 기각(약한 기각). 동작은 동등하나 기존 경로 체계에 없던 최상위 접두사를 새로 만들 이득이 없다 |
+
+**결정 2 — 인가 규칙을 추가하지 않는다**
+
+두 경로 모두 `SecurityConfig`의 `permitAll` 매처(`/api/auth/**`, `GET /api/courses`·`/api/courses/*`)와 `hasRole("ADMIN")` 매처(`/api/admin/**`) 어디에도 걸리지 않으므로 **기존 `anyRequest().authenticated()` 기본 규칙이 그대로 적용**된다. `SecurityConfig`는 이 SPEC의 PRESERVE 대상이며, M7은 그 파일을 **열 이유가 없다.** REQ-LST-005(401)는 새 코드가 아니라 기존 기본 규칙으로 충족된다 — 다만 AC-ENR-057이 그 사실을 실측한다.
+
+**결정 3 — `courseTitle`은 별도 조회로 채우고, `Enrollment`→`Course` 연관을 만들지 않는다**
+
+`courseTitle` 표시를 위해 `Enrollment`에 `@ManyToOne Course`를 추가하는 것은 **금지한다** (§G 안티패턴에 추가). 이유는 성능이 아니라 **안전**이다 — `Enrollment`를 향한 JPA 연관을 만드는 순간 연쇄 저장·변경 감지 우회 경로가 열려 §C.4가 세운 3층 검증(특히 AC-ENR-009 (i) 연쇄 저장 0건)의 전제가 흔들린다. 대신 조회 서비스가 `courseId` 집합을 모아 기존 `CourseRepository`로 한 번 더 읽어 합친다. 회원 1명의 보유 건수는 작으므로 비용도 문제되지 않는다.
+
+**결정 4 — 배치 위치**
+
+- 확정 목록: `enrollment.query` 패키지의 읽기 전용 조회 서비스 + `EnrollmentController`. `enrollment.query`는 design.md §7이 이미 "읽기 전용" 용도로 만든 패키지이고, AC-ENR-009 (ii)의 허용 목록("워커 처리 패키지 **및 읽기 전용 조회 패키지**")에 이미 포함되어 있다 — **ArchUnit 규칙을 고칠 필요가 없다.**
+- 대기 목록: `waitlist` 패키지(`WaitlistService` 계열) + `WaitlistController`. `waitlist`는 "순번 관리와 조회만 담당하고 `Enrollment`를 생성하지 않는다"는 design.md §7의 규정에 그대로 부합한다.
+
+**결정 5 — 반환 범위는 활성만, 정렬은 규범**
+
+근거는 spec.md §A.6.2 / §A.6.3에 있다. 정렬을 명세에 못박은 이유는 AC가 순서를 단언할 수 있어야 하기 때문이며, 이는 이 SPEC이 처음부터 지켜온 "주관적 판정은 인수 기준이 될 수 없다" 원칙의 연장이다.
 
 ---
 
@@ -257,6 +304,21 @@ run 단계 진입 전 확인:
 - 대응 요구사항: REQ-NFR-001 ~ REQ-NFR-006
 - 대응 AC: AC-ENR-045 ~ AC-ENR-049
 
+### M7 — 보유 내역 조회 (v0.3.0 제자리 개정, 우선순위: 높음, 난이도: 낮음)
+
+M1~M6은 **완료 상태이며 이 마일스톤은 그 위에 읽기 전용 조회만 얹는다.** 배경은 §A.3, 설계 결정은 §C.8, 규범적 계약은 spec.md §A.6에 있다.
+
+- `GET /api/enrollments/mine` — 본인 활성 확정(`ENROLLED`) 목록, `enrollmentId` 오름차순 (`enrollment.query` + `EnrollmentController`)
+- `GET /api/waitlist-entries/mine` — 본인 활성 대기(`WAITING`) 목록, `position` 오름차순 (`waitlist` + `WaitlistController`)
+- 응답 항목에 **행 식별자**(`enrollmentId` / `waitlistEntryId`)를 포함 — `requestId`도 `position`도 아니다 (§C.8 결정 1)
+- `courseTitle`은 기존 `CourseRepository`로 별도 조회하여 합친다 — `Enrollment`에 JPA 연관 추가 **금지** (§C.8 결정 3)
+- 소유권 범위 한정은 `Authentication` 유도 회원 식별자 **단독**으로 — 회원 식별자를 받는 핸들러 파라미터를 만들지 않는다 (spec.md §A.6.4)
+- `SecurityConfig`·워커·큐·승격 헬퍼·`enrolled_count` 경로는 **열지 않는다** (§C.8 결정 2, §A.3)
+- 대응 요구사항: REQ-LST-001 ~ REQ-LST-006, INV-ENR-010
+- 대응 AC: AC-ENR-054 ~ AC-ENR-058
+- **M7 완료 조건**: **AC-ENR-056**(조회 → 취소 계약 폐쇄)과 **AC-ENR-057**(미인증 차단 및 타인 데이터 격리)이 **함께** 통과한다. AC-ENR-054/055가 각각 통과해도 AC-ENR-056이 실패하면 반환된 식별자가 취소 API가 받는 값과 대응하지 않는다는 뜻이므로 `DEP-2` 공백은 닫히지 않은 것이며 M7은 미완료다. 추가로 **AC-ENR-058**(무부작용)이 통과하여 이 개정이 INV-ENR-002를 훼손하지 않았음이 DB 상태로 입증되어야 한다.
+- **회귀 조건**: M7은 기존 파일 중 `EnrollmentController`·`WaitlistController`·두 저장소 인터페이스를 건드리므로, M1~M6의 해당 테스트(접수/상태 조회/취소/대기 순번/ArchUnit 경계)를 재실행하여 무손상을 확인한다.
+
 ---
 
 ## §G 안티패턴 (구현 중 금지)
@@ -286,6 +348,11 @@ run 단계 진입 전 확인:
 | `CANCEL`·`CAPACITY_INCREASE` 처리에서 강좌 모집 상태를 확인하지 않음 | REQ-WL-011 / REQ-ADX-005 위반. `SPEC-COURSE-001`은 강좌 삭제를 `CLOSED` 전이로 처리하므로(REQ-ADM-008), 상태 확인이 없으면 **관리자가 삭제했다고 믿는 강좌로 대기자가 승격된다** (감사 E2). 정책은 spec.md §A.5에 확정되어 있다 — 취소는 허용, 승격은 동결 |
 | 마감을 이유로 확정 취소 자체를 거부 | 위 정책의 반대편 오류. 회원이 강좌에서 빠져나올 수 없게 된다. `CLOSED`가 막는 것은 **새 확정**이지 취소가 아니다 (spec.md §A.5) |
 | React 스캐폴딩 생성 | 사용자 결정(백엔드 우선) 위반. spec.md §D 범위 제외 |
+| **(M7)** 보유 내역 조회에 회원 식별자 파라미터를 두고 소유권을 "검사"로 막기 | REQ-LST-003 / INV-ENR-010 위반. 검사는 실수 한 번으로 뚫리지만 **입력이 없으면 뚫릴 것이 없다.** `DEP-2` 조사가 "사용자 직접 입력" 우회안을 기각한 이유가 열거 표면 제공이었는데, 그 대체물이 같은 표면을 다시 만들면 개정의 목적이 사라진다 (spec.md §A.6.4) |
+| **(M7)** `courseTitle`을 위해 `Enrollment`에 `@ManyToOne Course` 연관을 추가 | §C.4의 3층 검증 전제를 무너뜨린다. `Enrollment`를 향한 JPA 연관은 연쇄 저장·변경 감지 우회 경로를 여는 행위이며, AC-ENR-009 (i)이 금지한 것과 같은 종류다. 기존 `CourseRepository`로 별도 조회해 합친다 (§C.8 결정 3) |
+| **(M7)** `waitlistEntryId` 자리에 `position`을, `enrollmentId` 자리에 `requestId`를 반환 | REQ-LST-006 위반이자 이 개정 전체의 무력화. `position`은 강좌 내 순번이고 `requestId`는 큐 테이블의 독립 시퀀스다 — 둘 다 취소 API가 받는 값이 아니다. AC-ENR-056이 이 혼동을 정확히 판별한다 |
+| **(M7)** 조회 API에 인가 규칙·`SecurityConfig` 수정 추가 | 불필요하며 PRESERVE 위반이다. 두 경로는 어떤 `permitAll` 매처에도 걸리지 않아 기존 `anyRequest().authenticated()`가 이미 401을 낸다 (§C.8 결정 2) |
+| **(M7)** 조회 범위를 넓혀 이력·페이지네이션·필터를 함께 구현 | spec.md §D "보유 내역 조회의 확장" 범위 제외 위반. 개정의 목적은 취소 대상 지목이라는 **최소 형태의 계약 폐쇄**이며, 그 이상은 별도 SPEC이다 |
 
 ---
 

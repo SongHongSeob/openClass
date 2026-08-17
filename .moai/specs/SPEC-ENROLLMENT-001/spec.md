@@ -1,10 +1,10 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격"
-version: "0.2.2"
-status: draft
+version: "0.3.0"
+status: completed
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-17
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -13,6 +13,7 @@ lifecycle: spec-anchored
 tags: "enrollment, fcfs, queue, waitlist, concurrency, spring-boot"
 tier: L
 depends_on: [SPEC-AUTH-001, SPEC-COURSE-001]
+amendment_of: SPEC-ENROLLMENT-001
 ---
 
 # SPEC-ENROLLMENT-001 — 선착순 수강신청 큐·워커 및 대기명단 자동 승격
@@ -25,6 +26,30 @@ depends_on: [SPEC-AUTH-001, SPEC-COURSE-001]
 | 0.2.0 | 2026-08-15 | manager-spec | **범위 축소 재작성.** 인증은 `SPEC-AUTH-001`, 강좌는 `SPEC-COURSE-001`로 분리. plan-auditor 감사(FAIL, 0.76) 지적 12건 반영 — 특히 접수 순서 보장 메커니즘 재설계(강좌 단위 배타 잠금), `enrolled_count` 변경 경로 단일화, 취소 소유권 검증 추가, 큐 상태 도메인 명시, 부하 상한 정량화 |
 | 0.2.1 | 2026-08-15 | manager-spec | 2차 감사 지적 반영 — **E1**(동일 회원의 활성 대기명단 항목 중복 미차단 → REQ-WRK-007에 3번째 상태 추가, REQ-WL-009 부적격 대기자 건너뛰기, REQ-WL-010 DB 제약, INV-ENR-009), **E2**(`CLOSED` 강좌에서의 `CANCEL`·`CAPACITY_INCREASE` 동작 미정의 → REQ-WL-011·REQ-ADX-005로 "취소는 허용, 승격은 동결" 확정 + §A.4 `result` 도메인 확장), E6(REQ-NFR-006에서 TDD 프로세스 절 분리 → plan.md §D 제약으로 이동) |
 | 0.2.2 | 2026-08-16 | manager-spec | plan-auditor **2회차 PASS(0.92)** 후속 문서 정밀화 (경미 6건 N1~N6 중 이 파일 해당분 4건). **N4** — §A.4에 `enrollment.status`(2종)·`waitlist_entry.status`(4종, `DUPLICATE` 포함) 값 도메인과 합법 전이를 규범적으로 열거하고 "활성(active)"을 정의. REQ-WL-009의 "중복 상태"가 `DUPLICATE`임을 명시. **N5** — REQ-WL-001에 대기 순번 부여 규칙(`MAX(position) + 1` over 전체 이력, `COUNT(활성)+1` 금지)을 명시하여 승격 후 순번 충돌로 인한 큐 선두 정지 경로를 차단. **N1** — REQ-WL-003·REQ-WL-004·REQ-ADX-002의 무조건 `shall`에 모집 상태·승격 적격성 한정 어구 추가(REQ-WL-011/REQ-ADX-005/REQ-WL-009와의 표면상 모순 해소, 동작 변경 없음). **N2** — REQ-QUE-003의 접수 잠금 범위를 큐 INSERT 전 경로(`ENROLL`·`CANCEL`·`CAPACITY_INCREASE`)로 확장하여 AC-ENR-005의 실제 검증 범위와 일치시킴 |
+| 0.3.0 | 2026-08-17 | manager-spec | **제자리 개정(in-place amendment) — `DEP-2` 계약 폐쇄.** 회원 본인의 확정 수강신청·대기명단 항목을 그 **식별자와 함께** 반환하는 읽기 전용 조회 엔드포인트 2종을 추가한다. 기존 취소 엔드포인트 2종이 요구하는 `enrollmentId`·`waitlistEntryId`를 **이 SPEC의 어떤 응답도 반환하지 않아** 클라이언트가 취소를 호출할 경로 자체가 없던 결함을 닫는다. §A.6·§B.8(REQ-LST-001~006)·INV-ENR-010·AC-ENR-054~058 신설. **M1~M6의 기존 동작·요구사항·인수 기준은 한 건도 변경하지 않았다** — 전부 추가만 했다 |
+
+## Amendments
+
+이 SPEC은 `completed` 도달 후 **제자리 개정(in-place amendment)** 되었다. `amendment_of: SPEC-ENROLLMENT-001`(자기 참조)이 그 선언이며, 상태는 `completed → in-progress`로 되돌아갔다 (`.claude/rules/moai/development/spec-frontmatter-schema.md` § Status Transition Ownership Matrix).
+
+| 항목 | 값 |
+|---|---|
+| 직전 완료 버전 | **0.2.2** (`status: completed`, 2026-08-17) |
+| `prior_completed_sha` | `2148d05084560950dc73642a8bca1ec3f9670df9` (progress.md §E.4 `sync_commit_sha`) |
+| 개정 버전 | **0.3.0** (`status: in-progress`) |
+| 개정 범위 (§B REQ ID) | **신설만** — REQ-LST-001 ~ REQ-LST-006 (§B.8), INV-ENR-010 (§C). 기존 REQ/INV **0건 변경** |
+| 대응 AC | **신설만** — AC-ENR-054 ~ AC-ENR-058. 기존 AC **0건 변경** |
+| 대응 마일스톤 | **M7** (plan.md §F). M1~M6은 완료 상태 그대로 유지 |
+
+**개정 사유 (rationale)**
+
+후속 `SPEC-FRONTEND-001`의 계획 단계 조사(`.moai/specs/SPEC-FRONTEND-001/research.md` §3, 식별자 `DEP-2`)에서 **이 SPEC의 API 표면이 자기 자신을 소비 불가능하게 만드는 계약 공백**이 확인되었다. 이 SPEC은 취소 엔드포인트 2종(`DELETE /api/enrollments/{enrollmentId}`, `DELETE /api/waitlist-entries/{entryId}`)을 정의하면서, 그 경로 변수에 넣을 값을 **어디에서도 반환하지 않는다** — 응답 DTO 3종(`EnrollmentReceiptResponse`·`EnrollmentStatusResponse`·`CourseResponse`)을 전수 확인한 결과 `Enrollment.id`와 `WaitlistEntry.id`는 단 한 번도 클라이언트에 전달되지 않으며, `EnrollmentStatusResponse`가 담은 `requestId`는 큐 요청 행의 식별자로 **다른 테이블의 독립 시퀀스**다. 조사에서 검토한 우회안 4종은 전부 기각되었고, 그중 "사용자가 식별자를 직접 입력"안은 화면 자체를 열거 시도(IDOR) 유도 표면으로 만든다는 이유로 기각되었다.
+
+즉 이것은 프론트엔드 설계로 해결할 수 있는 문제가 아니라 **이 SPEC의 계약 결함**이다. REQ-CNL-001과 REQ-WL-007은 회원 본인의 취소 권리를 규정하지만, 그 권리를 행사할 입력값을 얻을 경로가 존재하지 않아 **요구사항이 사실상 도달 불가능**한 상태였다. 결함의 소유자가 이 SPEC이므로 후속 SPEC이 아니라 이 SPEC이 제자리 개정으로 닫는다.
+
+**개정이 건드리지 않는 것**
+
+읽기 전용 추가다. 워커·큐·`enrolled_count` 변경 경로·접수 잠금·승격 로직은 한 줄도 바뀌지 않으며, REQ-WRK-001/002, INV-ENR-001/002, INV-ENR-007 등 안전 임계 불변식은 전부 그대로 유지된다. 새 엔드포인트는 이미 존재하는 `enrollment`·`waitlist_entry` 행을 읽기만 한다 (REQ-LST-004).
 
 ---
 
@@ -175,6 +200,50 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 
 대기명단 항목 자체는 이 정책에서 **삭제하거나 취소 처리하지 않는다** — 강좌가 다시 `OPEN`이 될 수 있으므로 순번을 보존한다. 대기자는 언제든 자신의 대기를 직접 취소할 수 있다 (REQ-WL-007).
 
+### A.6 보유 내역 식별자 노출 — 취소 계약의 폐쇄 (v0.3.0 개정)
+
+이 절은 v0.3.0 제자리 개정으로 신설되었다. 배경은 위 `## Amendments`에 있다.
+
+#### A.6.1 결정 — 목록 조회 엔드포인트 2종
+
+회원 본인이 **취소 대상을 지목하는 데 필요한 최소 정보**를 반환하는 읽기 전용 엔드포인트 2종을 추가한다.
+
+| 메서드 | 경로 | 반환 대상 |
+|---|---|---|
+| GET | `/api/enrollments/mine` | 요청자 본인의 **활성 확정 수강신청**(`status='ENROLLED'`) 목록 |
+| GET | `/api/waitlist-entries/mine` | 요청자 본인의 **활성 대기명단 항목**(`status='WAITING'`) 목록 |
+
+**경로 접두사를 취소 경로와 일치시킨 이유**: 클라이언트의 사용 흐름이 `GET /api/enrollments/mine` → `enrollmentId` 획득 → `DELETE /api/enrollments/{enrollmentId}`이므로, 같은 리소스 접두사를 쓰면 조회와 취소의 대응이 경로만 보고 드러난다. 새 최상위 접두사(`/api/me/...`)를 도입하지 않는 편은 부수 효과도 없다 — 두 경로 모두 `SecurityConfig`의 어떤 `permitAll` 매처에도 걸리지 않아 기존 `anyRequest().authenticated()` 기본 규칙이 그대로 적용되며, **인가 규칙을 추가할 필요가 없다** (`SecurityConfig`는 이 SPEC의 PRESERVE 대상이다).
+
+**기각한 대안 — `EnrollmentStatusResponse`에 식별자 2개를 추가**: 변경량은 더 작지만, 그렇게 하면 **요청 식별자를 보관하고 있는 클라이언트만** 취소할 수 있다. 새 탭을 연 사용자·다른 기기에서 접속한 사용자는 여전히 취소 경로가 없으므로 계약 공백이 절반만 닫힌다. 목록 조회 방식은 보관 상태와 무관하게 완결적이다.
+
+#### A.6.2 응답 계약 (규범적)
+
+두 응답 모두 **배열**이며, 대상이 없으면 빈 배열과 200을 반환한다 (404가 아니다 — "내 목록이 비어 있음"은 정상 상태다).
+
+| 엔드포인트 | 항목 필드 | 정렬 |
+|---|---|---|
+| `GET /api/enrollments/mine` | `enrollmentId`, `courseId`, `courseTitle`, `status`, `enrolledAt` | `enrollmentId` 오름차순 |
+| `GET /api/waitlist-entries/mine` | `waitlistEntryId`, `courseId`, `courseTitle`, `position`, `status` | `position` 오름차순 |
+
+- `enrollmentId` / `waitlistEntryId`는 **각각 `DELETE /api/enrollments/{enrollmentId}` / `DELETE /api/waitlist-entries/{entryId}`가 받는 값과 동일한 식별자**여야 한다. 이 동일성이 개정의 목적 그 자체이므로 요구사항(REQ-LST-006)과 인수 기준(AC-ENR-056)으로 명시한다.
+- `courseTitle`은 취소 버튼 옆에 "무엇을 취소하는지"를 표시하기 위한 값이다. 강좌 식별자만 반환하면 클라이언트가 강좌 조회를 N회 더 호출해야 한다.
+- `status`는 §A.4.2 / §A.4.3의 상태값을 그대로 노출한다. 현재 반환 범위가 활성 1종뿐이어서 값이 고정되지만, 클라이언트가 상태를 추론으로 가정하지 않게 하고 향후 이력 노출로 확장할 때 응답 형태가 바뀌지 않도록 포함한다.
+- 정렬을 규범으로 못박는 이유는 **인수 기준이 관찰 가능해야 하기 때문**이다. 정렬이 미정이면 AC가 순서를 단언할 수 없다.
+
+#### A.6.3 반환 범위를 "활성"으로 한정하는 이유
+
+두 엔드포인트는 §A.4의 **활성 상태만** 반환한다 — 확정은 `ENROLLED`, 대기는 `WAITING`. 종단 상태(`CANCELLED`·`PROMOTED`·`DUPLICATE`)는 반환하지 않는다.
+
+1. **목적 적합성**: 이 엔드포인트의 존재 이유는 취소 대상 지목이며, 취소 가능한 것은 활성 항목뿐이다. 종단 항목의 식별자를 받아도 취소는 `REJECTED`된다 (REQ-CNL-005).
+2. **최소 노출**: 이력 조회는 별개의 기능이며 이 개정의 범위가 아니다 (§D 범위 제외).
+
+#### A.6.4 소유권 범위 한정 — 구조에 의한 안전
+
+두 엔드포인트는 **회원 식별자를 입력으로 받지 않는다.** 반환 집합은 오직 인증 주체(`Authentication`)에서 유도한 회원 식별자로 결정되며, 다른 회원의 데이터를 지목할 수 있는 경로 변수·쿼리 파라미터·요청 본문 필드가 **존재하지 않는다.** 이는 `GET /api/enrollment-requests/{requestId}`(REQ-STS-002)가 식별자를 받은 뒤 소유권을 **검사**하여 막는 것과 다르며, 애초에 조작할 입력이 없으므로 **구조적으로 안전하다** (INV-ENR-010).
+
+이 성질은 `DEP-2` 조사가 "사용자에게 식별자를 직접 입력받기" 우회안을 기각한 이유와 정확히 맞물린다 — 그 우회안은 화면을 열거 시도 표면으로 만들지만, 목록 조회는 열거할 대상 자체를 없앤다.
+
 ---
 
 ## §B 요구사항 (GEARS)
@@ -268,6 +337,19 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 
 > **개발 방법론(TDD RED-GREEN-REFACTOR)은 요구사항이 아니라 프로세스 제약이다.** "테스트를 먼저 작성했는가"는 산출물 관찰로 검증할 수 없으므로 요구사항으로 두면 추적성 매트릭스가 AC가 제공하지 않는 커버리지를 보고하게 된다. 이 지시는 plan.md §D 제약 조건 표로 이동했다.
 
+### B.8 보유 내역 조회 (LST) — v0.3.0 개정
+
+이 절은 v0.3.0 제자리 개정으로 **신설**되었다 (`## Amendments`, §A.6). 기존 절(B.1~B.7)의 요구사항은 한 건도 변경하지 않았으므로, 번호 재배치를 피하기 위해 B.7 뒤에 덧붙인다. `STS`와 별도 분류(`LST`)를 쓰는 이유는 대상 리소스가 다르기 때문이다 — `STS`는 **큐 요청 1건**의 처리 상태를 조회하고, `LST`는 **회원이 보유한 확정·대기 레코드 집합**을 조회한다.
+
+- **REQ-LST-001** (Event-driven) — **When** 인증된 회원이 자신의 확정 수강신청 목록 조회를 요청하면, 시스템은 **그 회원의 활성 확정 수강신청**(`status='ENROLLED'`)만을 `enrollmentId` 오름차순으로 반환 **shall**하며, 각 항목에 §A.6.2가 정한 필드(`enrollmentId`·`courseId`·`courseTitle`·`status`·`enrolledAt`)를 포함 **shall**한다. 대상이 0건이면 404가 아니라 빈 목록과 200을 반환 **shall**한다.
+- **REQ-LST-002** (Event-driven) — **When** 인증된 회원이 자신의 대기명단 항목 목록 조회를 요청하면, 시스템은 **그 회원의 활성 대기명단 항목**(`status='WAITING'`)만을 `position` 오름차순으로 반환 **shall**하며, 각 항목에 §A.6.2가 정한 필드(`waitlistEntryId`·`courseId`·`courseTitle`·`position`·`status`)를 포함 **shall**한다. 대상이 0건이면 404가 아니라 빈 목록과 200을 반환 **shall**한다.
+- **REQ-LST-003** (Ubiquitous) — 두 목록 조회 API는 회원 식별자를 경로 변수·쿼리 파라미터·요청 본문 중 어떤 형태로도 입력받 **shall not**는다. 반환 집합은 오직 인증 주체에서 유도한 회원 식별자로 결정 **shall**되며, 어떤 요청 값을 조작해도 다른 회원의 확정 수강신청 또는 대기명단 항목이 반환 **shall not**된다 (§A.6.4).
+- **REQ-LST-004** (Ubiquitous) — 두 목록 조회 API는 부작용 없는 읽기 전용 동작 **shall**이어야 하며, 호출 횟수와 무관하게 `enrollment`·`waitlist_entry`·`enrollment_request` 어느 테이블의 행도 생성·변경·삭제 **shall not**하고 `course.enrolled_count`를 변경 **shall not**한다. 이 API는 확정 경로가 아니다 (REQ-WRK-001, REQ-WRK-002, INV-ENR-002).
+- **REQ-LST-005** (State-driven) — **While** 요청자가 인증되지 않은 상태이면, 두 목록 조회 API는 401을 반환 **shall**하며 어떤 회원의 보유 내역도 노출 **shall not**한다.
+- **REQ-LST-006** (Ubiquitous) — 목록 조회가 반환한 `enrollmentId`는 `DELETE /api/enrollments/{enrollmentId}`가, `waitlistEntryId`는 `DELETE /api/waitlist-entries/{entryId}`가 받는 식별자와 **동일** **shall**하다. 즉 목록 조회의 응답만으로 취소 API 호출이 성립 **shall**하며, 클라이언트가 어떤 값을 추측·열거·유도해야 하는 상태가 남 **shall not**는다.
+
+  > 이 요구사항이 개정의 **종결 조건**이다. REQ-LST-001·002가 식별자를 반환해도 그 값이 취소 API가 받는 값과 다르면 계약 공백은 그대로 남는다. AC-ENR-056이 조회 → 취소를 실제로 연결하여 이를 검증한다.
+
 ---
 
 ## §C 시스템 불변식 (Invariants)
@@ -285,6 +367,7 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 | INV-ENR-007 | 동일 강좌에 대해, 큐 행 순서값의 오름차순은 그 행들의 커밋 가시화 순서와 일치한다 (§A.2 접수 잠금의 결과). |
 | INV-ENR-008 | 어떤 회원도 다른 회원의 확정 수강신청 또는 대기명단 항목을 취소할 수 없다. |
 | INV-ENR-009 | 동일 강좌·동일 회원의 활성 대기명단 항목은 최대 1건이며, DB 제약이 이를 강제한다. |
+| INV-ENR-010 | 어떤 회원도 다른 회원의 확정 수강신청 또는 대기명단 항목의 **식별자를 포함한 정보를 조회할 수 없다.** 보유 내역 조회 API는 회원 식별자를 입력으로 받지 않으므로 이 성질이 검사가 아니라 구조로 보장된다 (§A.6.4, v0.3.0 개정). INV-ENR-008이 쓰기(취소) 쪽을, 이 불변식이 읽기 쪽을 담당한다. |
 
 ---
 
@@ -325,11 +408,20 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 
   v1의 취소 권한은 본인에게만 부여된다 (REQ-CNL-004). 대리 취소가 필요해지면 감사 로그 요구사항과 함께 별도 SPEC으로 도입한다.
 
+### Out of Scope — 보유 내역 조회의 확장 (v0.3.0 개정)
+
+- 종단 상태(`CANCELLED`·`PROMOTED`·`DUPLICATE`) 항목을 포함한 **이력 조회**
+- 페이지네이션·정렬 옵션·기간/강좌 필터 등 조회 파라미터
+- 관리자가 **타 회원의** 보유 내역을 조회하는 경로
+- 확정·대기 목록을 한 응답으로 합치는 통합 엔드포인트
+
+  §A.6.1이 정한 2종 엔드포인트가 `DEP-2` 계약 공백을 닫는 **최소 형태**다. 위 항목은 전부 "있으면 좋을 것 같아서"에 해당하며, 필요해지면 별도 SPEC으로 도입한다. 특히 관리자 타인 조회는 REQ-CNL-004(관리자 대리 조작 없음)와 같은 이유로 배제한다 — 도입한다면 감사 로그 요구사항이 함께 와야 한다.
+
 ### Out of Scope — 프론트엔드 구현
 
 - React 애플리케이션 스캐폴딩, 폴링 UI, 상태 표시 컴포넌트
 
-  이 SPEC은 백엔드 API 계약과 정합성 보장까지를 범위로 한다. 후속 `SPEC-FRONTEND-001`(**아직 생성하지 않음 — 향후 계획**)이 이 SPEC의 접수·상태 조회·취소 API를 소비할 예정이다. 이 SPEC의 인수 기준은 React 없이 100% 검증된다.
+  이 SPEC은 백엔드 API 계약과 정합성 보장까지를 범위로 한다. 후속 `SPEC-FRONTEND-001`(**계획 단계 진행 중** — v0.3.0 개정 시점 기준)이 이 SPEC의 접수·상태 조회·보유 내역 조회·취소 API를 소비할 예정이다. 이 SPEC의 인수 기준은 React 없이 100% 검증된다.
 
 ### Out of Scope — 다른 SPEC이 소유한 영역
 
@@ -349,6 +441,7 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 7. `CLOSED` 강좌에서 취소는 정상 처리되지만 어떤 대기자도 승격되지 않는다 (REQ-WL-011, REQ-ADX-005).
 8. 동시 접수 500건 부하에서 마지막 요청까지 5초 이내에 종단 결과에 도달한다 (REQ-STS-003).
 9. 전체 테스트 커버리지 85% 이상, LSP 에러·타입에러·린트에러 0건.
+10. (v0.3.0 개정) 회원이 자신의 보유 내역을 조회하여 얻은 `enrollmentId`·`waitlistEntryId`로 **추측이나 열거 없이** 취소 API를 호출할 수 있고, 그 조회에 다른 회원의 데이터가 섞이지 않는다 (REQ-LST-006, INV-ENR-010).
 
 ---
 

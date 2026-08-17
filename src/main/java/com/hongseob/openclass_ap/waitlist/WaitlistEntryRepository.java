@@ -1,0 +1,57 @@
+package com.hongseob.openclass_ap.waitlist;
+
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+/**
+ * {@link WaitlistEntry} 저장소.
+ */
+public interface WaitlistEntryRepository extends JpaRepository<WaitlistEntry, Long> {
+
+    /**
+     * 다음 대기 순번을 계산한다 — REQ-WL-001 / 2회차 감사 후속 N5. 강좌 전체
+     * 이력(종단 상태 {@code PROMOTED}·{@code CANCELLED}·{@code DUPLICATE} 항목
+     * 포함)에서 관측된 최대 순번 + 1이며, {@code status} 필터가 없는 것이 이
+     * 쿼리의 핵심이다 — 현재 활성 항목의 개수(COUNT)로 계산하면 승격 직후 순번이
+     * 충돌해 부분 유니크 인덱스 위반으로 트랜잭션이 롤백되고 큐 선두가 영구히
+     * 막힌다(design.md §4.3 근거).
+     */
+    @Query("SELECT COALESCE(MAX(w.position), 0) + 1 FROM WaitlistEntry w WHERE w.courseId = :courseId")
+    long nextPosition(@Param("courseId") Long courseId);
+
+    /**
+     * REQ-WRK-007 중복 검사 3번 — 동일 회원이 동일 강좌에 이미 활성
+     * ({@link WaitlistStatus#WAITING}) 대기명단 항목을 보유하는지 확인한다
+     * (M2, 2차 감사 E1). 이 검사가 없으면 이미 대기자가 된 회원의 재신청이
+     * 통과해 같은 강좌의 대기 순번을 2개 점유한다(design.md §4.3).
+     */
+    boolean existsByMemberIdAndCourseIdAndStatus(Long memberId, Long courseId, WaitlistStatus status);
+
+    /**
+     * 상태 조회 API가 대기 순번을 노출하기 위해 사용한다(M3, REQ-STS-001,
+     * AC-ENR-024). {@code (member_id, course_id) WHERE status='WAITING'} 부분
+     * 유니크 인덱스(INV-ENR-009)가 최대 1건만 존재함을 보장하므로 단건 조회로
+     * 충분하다.
+     */
+    Optional<WaitlistEntry> findByMemberIdAndCourseIdAndStatus(Long memberId, Long courseId, WaitlistStatus status);
+
+    /**
+     * 승격 헬퍼(promoteNextEligible, design.md §4.3)가 가장 앞선 활성 대기자
+     * 1건을 찾는 데 쓴다(M4, REQ-WL-003/REQ-WL-009). {@code status=WAITING}
+     * 필터가 "활성"의 규범적 정의(spec.md §A.4.3)와 정확히 일치한다 —
+     * 종단 상태 3종은 이 조회에 나타나지 않는다.
+     */
+    Optional<WaitlistEntry> findFirstByCourseIdAndStatusOrderByPositionAsc(Long courseId, WaitlistStatus status);
+
+    /**
+     * 내 대기명단 항목 목록 조회(M7, REQ-LST-002)가 쓰는 조회 메서드 — 요청자의
+     * 활성 대기({@link WaitlistStatus#WAITING}) 항목만 {@code position} 오름차순으로
+     * 반환한다(spec.md §A.6.2). 회원 식별자는 오직 인증 주체에서 유도한 값만
+     * 전달되며, 이 메서드 자체는 어떤 열거 가능한 파라미터도 받지 않는다
+     * (REQ-LST-003).
+     */
+    List<WaitlistEntry> findByMemberIdAndStatusOrderByPositionAsc(Long memberId, WaitlistStatus status);
+}

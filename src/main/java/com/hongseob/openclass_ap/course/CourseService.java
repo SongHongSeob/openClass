@@ -6,6 +6,7 @@ import com.hongseob.openclass_ap.course.dto.CourseCreateRequest;
 import com.hongseob.openclass_ap.course.dto.CoursePageResponse;
 import com.hongseob.openclass_ap.course.dto.CourseResponse;
 import com.hongseob.openclass_ap.course.dto.CourseUpdateRequest;
+import com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -17,15 +18,24 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>{@code enrolled_count}를 변경하는 메서드는 정의하지 않는다(REQ-CRS-004 /
  * INV-CRS-003) — 이 클래스가 존재하는 한 계속 지켜야 할 제약이다. 아래 관리자
  * 메서드들은 강좌명·설명·정원·일정·상태만 변경하며 확정 인원에는 손대지 않는다.</p>
+ *
+ * <p><b>M5 훅</b>(REQ-ADX-001, {@code SPEC-ENROLLMENT-001}): {@link #update}가
+ * 정원이 실제로 증가한 경우에만(신규 정원 &gt; 이전 정원) {@link
+ * EnrollmentReceiptService#receiveCapacityIncrease}를 호출해 {@code
+ * CAPACITY_INCREASE} 요청을 큐에 적재한다. 이 클래스는 승격을 직접 수행하지
+ * 않는다 — 적재만 위임하고 그 결과를 기다리지 않는다(plan.md §G 안티패턴
+ * "정원 증설을 관리자 API에서 직접 승격 처리").</p>
  */
 @Service
 @Transactional(readOnly = true)
 public class CourseService {
 
     private final CourseRepository courseRepository;
+    private final EnrollmentReceiptService enrollmentReceiptService;
 
-    public CourseService(CourseRepository courseRepository) {
+    public CourseService(CourseRepository courseRepository, EnrollmentReceiptService enrollmentReceiptService) {
         this.courseRepository = courseRepository;
+        this.enrollmentReceiptService = enrollmentReceiptService;
     }
 
     /**
@@ -65,6 +75,11 @@ public class CourseService {
      * 요청은 409로 거부한다 — 정확히 확정 인원과 같은 값으로의 축소는 허용이다
      * (REQ-ADM-005, plan.md §C.3, AC-ADM-004 경계값). 존재하지 않는 강좌 ID는
      * 404로 매핑되는 {@link CourseNotFoundException}을 던진다(REQ-ADM-009).
+     *
+     * <p>정원이 실제로 증가한 경우에만(신규 정원 &gt; 이전 정원) {@code
+     * CAPACITY_INCREASE} 요청을 큐에 적재한다(REQ-ADX-001, AC-ENR-041) — 무변경
+     * 갱신이나 축소(§C.3 검증을 통과한 경우, 즉 확정 인원까지의 축소)에서는
+     * 적재하지 않는다. 승격은 이 메서드가 반환한 뒤 워커가 비동기로 수행한다.</p>
      */
     @Transactional
     public CourseResponse update(Long id, CourseUpdateRequest request) {
@@ -73,8 +88,12 @@ public class CourseService {
         if (request.capacity() < course.getEnrolledCount()) {
             throw new CapacityBelowEnrollmentException(id, request.capacity(), course.getEnrolledCount());
         }
+        Integer previousCapacity = course.getCapacity();
         course.updateDetails(request.title(), request.description(), request.capacity(),
                 request.startsAt(), request.endsAt());
+        if (request.capacity() > previousCapacity) {
+            enrollmentReceiptService.receiveCapacityIncrease(id);
+        }
         return CourseResponse.from(course);
     }
 

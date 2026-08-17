@@ -19,7 +19,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @ActiveProfiles("test")
 @TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop"
+        "spring.jpa.hibernate.ddl-auto=create-drop",
+        // SPEC-ENROLLMENT-001 plan.md §C.1 — schema.sql의 부분 유니크 인덱스가
+        // ddl-auto 이후에, Testcontainers(비-임베디드) DB에서도 실행되어야 한다.
+        "spring.jpa.defer-datasource-initialization=true",
+        "spring.sql.init.mode=always",
+        // SPEC-ENROLLMENT-001 M2, research.md §5 — 테스트는 @Scheduled 자동
+        // 폴링에 의존하면 타이밍에 종속된다. 모든 통합 테스트는 워커를
+        // 명시적으로 drainQueue()로 구동한다.
+        "app.enrollment.worker.scheduler-enabled=false"
 })
 public abstract class AbstractIntegrationTest {
 
