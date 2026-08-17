@@ -534,7 +534,7 @@ sync_phase_ready: true
 ```yaml
 sync_status: audit-ready
 sync_complete_at: 2026-08-18
-sync_commit_sha: pending-backfill  # orchestrator backfills after this commit lands (self-referential-hazard convention)
+sync_commit_sha: 8ac906e74eae33081c718755e1c19ac40cab9674
 sync_files_touched:
   - CHANGELOG.md
   - README.md
