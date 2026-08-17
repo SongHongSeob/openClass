@@ -271,7 +271,7 @@ mode_selection: sub-agent (§G)
 | REQ-CAT-003 / AC-FE-042 (정원·확정·잔여·상태 식별 가능) | **PASS** | `CourseListPage.tsx` 항목 렌더링에 `capacity`/`enrolledCount`/`remainingCapacity`/`status` 전부 포함(코드 레벨 확인 — 화면 렌더링 자체는 plan.md §D.1에 따라 자동 테스트 필수 범위 아님) |
 | REQ-CAT-004 / AC-FE-043 (항목 선택 → 상세) | **PASS** | `CatalogSection.tsx` — `onSelectCourse`가 `view`를 `{screen:'detail', courseId}`로 전환, `CourseDetailPage`가 `getCourseDetail(courseId)` 호출 |
 | REQ-CAT-005 / AC-FE-044 (CLOSED 시 신청 조작 미제공 + 마감 표시) | **PASS** | `catalogModel.test.ts` 3건 — `isEnrollmentBlocked('CLOSED')===true`, `'OPEN'===false`, 미지 상태값도 `false`(닫힌 화이트리스트 아님, REQ-ENR-009와 동일 원칙 적용). `CourseDetailPage.tsx`는 이 판정으로 마감 안내와 일반 모집 상태 표시를 분기 — 신청 CTA 자체가 이 마일스톤에 없으므로 결과적으로 미노출 충족(M4가 CTA 배선 시 동일 헬퍼로 게이팅해야 함을 주석으로 남김) |
-| REQ-CAT-006 / AC-FE-045 (비로그인 열람 가능) | **PASS(코드 레벨)** | `App.tsx` — `AuthenticatedView`·`AnonymousView` 양쪽 모두 `<CatalogSection />` 렌더링. `CourseListPage`/`CourseDetailPage`는 `token`을 전달하지 않고 `useSession()`을 참조하지 않음(코드 레벨 확인). **브라우저 실관측은 미수행 — 아래 "필요 후속 조치" 참조** |
+| REQ-CAT-006 / AC-FE-045 (비로그인 열람 가능) | **PASS** | `App.tsx` — `AuthenticatedView`·`AnonymousView` 양쪽 모두 `<CatalogSection />` 렌더링. **브라우저 실관측 완료(아래)** — 비로그인 상태에서 목록·상세 모두 정상 렌더링 확인 |
 | AC-FE-046 (404 시 화면 미중단) | **PASS(코드 레벨)** | `CourseDetailPage.tsx` — `getCourseDetail` 실패 시 `ApiError.normalized.message`만 표시, throw 재전파 없음(errors.ts 단일 정규화 지점 소비, REQ-ERR-002). 실제 404 브라우저 관측은 미수행 |
 | E1 (`tsc -b --force`) | **PASS** | exit=0, 출력 없음 |
 | E2 (lint, oxlint) | **PASS** | exit=0, 출력 없음 |
@@ -281,7 +281,13 @@ mode_selection: sub-agent (§G)
 | AC-FE-003 (하드코딩 URL 0건, 신규 파일) | **PASS** | `grep -rn "http://\|https://" src --include="*.ts" --include="*.tsx"` → 0건(테스트 제외) |
 | B1 (신규 라우팅 의존성 미도입) | **PASS** | `grep -E "react-router\|tanstack" package.json` → 0건. `node_modules`에도 미설치 확인 후 착수 |
 
-**필요 후속 조치 (오케스트레이터 책임 — plan.md M3 완료 판정)**: `plan.md` §F M3의 완료 판정은 "브라우저에서 목록·상세 열람 확인(비로그인 상태 포함)"이며, 이 마일스톤은 이를 코드 레벨로만 충족했다. M1·M2와 동일한 패턴(`claude-in-chrome` + 대체 오리진)의 브라우저 실관측이 필요하다. 로컬 개발 DB에 강좌 데이터가 0건으로 시딩되어 있으므로(M1 관측 — "총 0건 중 0건 표시"), 실관측 시 REQ-CAT-002의 빈 목록 정상 표시(§B2 known issue)와 강좌 상세 열람(데이터 시딩 또는 백엔드 테스트 픽스처 필요) 두 경로를 모두 확인해야 한다.
+**브라우저 수동 확인 — 완료 (오케스트레이터, `claude-in-chrome`, M1·M2와 동일 패턴)**: 포트 5173이 여전히 다른 프로젝트에 점유되어 있어 대체 오리진 `http://localhost:5174`로 임시 기동. 이번에는 M2 확인 종료 시점의 정리(`pkill`)가 실제로는 실패해 이전 세션의 백엔드·프론트엔드가 계속 떠 있던 것을 발견 — 패턴을 프로세스 전체 커맨드라인 매칭(`OpenclassApApplication`, `node.*vite.*5174`)으로 바꿔 확실히 종료한 뒤 재기동했다(이후 재현 방지를 위해 기록).
+
+- **강좌 데이터 시딩**: 로컬 DB가 0건이었으므로(M1 관측), 관리자 로그인 후 `POST /api/admin/courses`로 강좌 2건 생성(정원 10·모집중 1건, 정원 5·마감 1건 — 후자는 `POST .../close`로 전환) — REQ-CAT-005(CLOSED 표시) 실관측을 위해 의도적으로 마감 강좌를 포함시켰다.
+- **목록(비로그인)**: `http://localhost:5174/` 접속 — 로그인 폼과 "강좌 목록" 섹션이 **로그인 없이 동시에** 렌더링됨(REQ-CAT-006). 두 항목 모두 "정원 N · 확정 0 · 잔여 N · {OPEN|CLOSED}" 형태로 표시(REQ-CAT-003), 페이지 컨트롤 "이전 1/1 다음"이 백엔드 페이지 메타데이터 기준으로 렌더링(REQ-CAT-002, `totalPages:1`과 일치)
+- **상세(비로그인)**: 마감 강좌 항목 클릭 → `GET /api/courses/{id}` 상세 화면으로 전환(REQ-CAT-004), "마감된 강좌입니다. 신청을 받지 않습니다."만 표시되고 **신청 버튼 없음**(REQ-CAT-005 실증 — CLOSED 상태에서 신청 조작이 아예 제공되지 않는다), 로그인 상태와 무관하게 접근 가능(REQ-CAT-006)
+- 콘솔 오류 0건. 확인 후 시드 데이터는 그대로 두었다(다음 마일스톤 M4의 수강신청 접수 확인에도 재사용 가능 — 정원 10의 모집중 강좌 `id=1`).
+- 확인 후 임시 프로세스 정리(이번엔 실제로 종료 확인됨), 사용자의 기존 5173 프로젝트에는 영향 없음.
 
 **작업 트리 범위**: `frontend/src/catalog/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경.
 
