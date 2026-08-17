@@ -295,6 +295,66 @@ mode_selection: sub-agent (§G)
 
 ---
 
+### M4 — 수강신청 접수 및 상태 폴링
+
+**대상 요구사항**: `REQ-ENR-001`~`011`
+
+**신규 의존성**: `react-router@^8.3.0`, `@tanstack/react-query@^5.101.4` — `plan.md` §C.6이 이미 결정한 유일한 신규 의존성 2건(라우팅·서버 상태/폴링). 과업 지시 B1은 "TanStack Query는 필수 아님 — 구체적 필요가 없으면 도입하지 않는다"였으나, `plan.md` §C.6과 `design.md` §A.4·§A.8(`enrollment/useRequestStatus.ts`, 401/retry 상호작용 명세)이 이미 감사(PASS 0.91, 4회차)를 통과한 상태로 이 도입을 규범적으로 확정해 두었으므로 — 지시 B1의 "구체적 필요가 없으면"이라는 단서에 해당하지 않는다고 판단해 `plan.md`를 따랐다. `react-router`는 REQ-ENR-011(새로고침·URL 직접 진입 시 접수 시각 기준 스케줄 재계산)이 라우터 없이는 성립하지 않아 필수로 확정되어 있었다(지시 B1 자체도 이 점을 명시). 버전은 설치 시점 npm 레지스트리 최신 안정판을 그대로 사용 — `react-router` v8은 v7부터의 정책대로 `react-router-dom` 없이 메인 export(`'.'`)에서 `BrowserRouter`/`Routes`/`Route`/`useParams`/`useNavigate` 등 DOM 바인딩을 직접 제공함을 `node_modules/react-router/dist/production/index.d.ts` 타입 선언에서 직접 확인한 뒤 사용(사용 전 실제 export 표면 확인 — 과업 지시 B10 "정확한 API 표면을 확인하고 추측하지 않는다").
+
+**산출물**:
+
+- `src/enrollment/pollingSchedule.ts` (+`.test.ts`) — `computePollingInterval`(경과 ms → 간격 ms | `'stop'`, plan.md §C.3 표 그대로: [0,5s)=1s / [5s,15s)=2s / [15s,30s)=3s / [30s,∞)=stop, 반개구간) / `isTerminalStatus`(REQ-ENR-004 — `PENDING`의 여집합, 화이트리스트 아님)
+- `src/enrollment/pollingDecision.ts` (+`.test.ts`) — `decideNextPoll`: TanStack Query `refetchInterval`에 그대로 위임되는 순수 판정. REQ-ENR-010의 비대칭(401=session-expired → 즉시 중단 / 네트워크 오류 → 다음 예정 주기에 자연히 재시도) + 종단 도달 시 중단(INV-FE-002)을 하나의 함수로 고정 — React/TanStack 렌더 없이 vitest(node 환경)로 직접 검증 가능하게 분리(plan.md §D.1 — 화면 렌더링 테스트는 필수 범위 아님)
+- `src/enrollment/receiptStorage.ts` (+`.test.ts`) — `saveReceiptTimestamp`/`loadReceiptTimestamp`. `tokenStorage.ts`와 동일한 `*StorageLike` 최소 인터페이스로 jsdom 없이 인메모리 목 테스트. requestId별 키(`openclass.enrollment.receiptAt.<id>`)로 격리, 손상 값은 예외 없이 `null`(INV-FE-006과 동일한 방어 원칙)
+- `src/enrollment/messages.ts` (+`.test.ts`) — `selectTerminalMessage`: 종단 8종 각각 구별되는 문구(REQ-ENR-009) + 미지 값은 일반 안내 문구로 대체(오류 아님)
+- `src/enrollment/scheduleFromReceipt.test.ts` — AC-FE-073a 직접 재현: 보존된 접수 시각(20초 전) 기준 재계산 시 3초 간격 반환 + 상한 중단이 **계산 시점이 아니라 보존된 접수 시각으로부터 30초 시점**에 지시됨을 별도 검증(재마운트 시각을 0초로 착각하는 결함이 있다면 이 테스트가 실패하도록 구성)
+- `src/enrollment/useRequestStatus.ts` — TanStack Query `useQuery` 래퍼. `retry: false`(내장 재시도 끔 — design.md §A.4가 명시한 "내장 retry를 켜 두면 만료 토큰으로 401을 중복 유발" 위험 회피) + `refetchInterval`을 `decideNextPoll`에 그대로 위임
+- `src/enrollment/RequestStatusPage.tsx` — 요청 상태 화면. PENDING 시 "접수됨 — 처리 중입니다"(REQ-ENR-002, 확정 표현 미사용) / 종단 시 `selectTerminalMessage` 표시 / `WAITLISTED`면 `waitlistPosition` 병기(REQ-ENR-008) / 상한 도달로 자동 폴링이 멈춘 것으로 판단되면(PENDING이면서 `computePollingInterval`이 `'stop'`) 수동 재확인 버튼 노출(REQ-ENR-007, `query.refetch()` — requestId는 계속 화면에 남아 유실되지 않음) / 접수 시각은 `receiptStorage`에서 복원하며 없으면(직접 URL 진입 등 예외 경로) "지금"으로 대체 기록(잔여 위험으로 아래에 기록)
+- `src/api/endpoints.ts` 확장 — `submitEnrollment(courseId, token)`(`POST /api/courses/{courseId}/enrollments`, spec.md §A.4 5번) / `getEnrollmentRequestStatus(requestId, token)`(`GET /api/enrollment-requests/{requestId}`, 6번) — 14개 중 6개 채움
+- `src/App.tsx` 수정 — `BrowserRouter`+`QueryClientProvider`를 트리 최상단에 추가. `<Routes>`는 `/requests/:requestId`(`RequestStatusRoute` — `RequireAuth`로 감싸고 실패 시 `<Navigate to="/" replace />`로 로그인 화면 유도, REQ-SES-009) 1개와 `path="*"`(기존 `Shell` — 회원가입·로그인·카탈로그, 지역 상태 전환 그대로 유지) 1개만 정의. **회원가입·로그인·카탈로그 화면은 라우트로 전환하지 않았다** — 과업 지시 B1이 허용한 부분 전환이며, 이 화면들은 URL 직접 진입이 요구사항이 아니다(대신 `BrowserRouter`가 트리 최상단에 있으므로 `CourseDetailPage`의 `useNavigate` 호출은 정상 동작)
+- `src/catalog/CourseDetailPage.tsx` 수정 — 인증된 세션에서 마감 아닌 강좌에 "수강신청" 버튼 노출(REQ-ENR-001). 클릭 시 `submitEnrollment` → 성공하면 `saveReceiptTimestamp` 즉시 기록 후 `/requests/{requestId}`로 `navigate`(REQ-ENR-011 — 접수 시각을 요청 식별자와 같은 시점에 같은 저장소에 기록). 비인증 세션에는 "로그인 후 신청할 수 있습니다" 안내로 대체(REQ-SES-009, 상세 열람 자체는 계속 공개 — REQ-CAT-006 유지)
+
+**AC / 항목 판정 (근거)**:
+
+| AC / 항목 | 판정 | 근거 |
+|---|---|---|
+| AC-FE-062a (0~5초 → 1초) | **PASS** | `pollingSchedule.test.ts` — `computePollingInterval(0)===1000`, `computePollingInterval(4999)===1000` |
+| AC-FE-062b (5~15초→2초, 15~30초→3초) | **PASS** | `pollingSchedule.test.ts` — 4개 경계값(5000/14999/15000/29999) 검증 |
+| AC-FE-062c (상한 초과 → 중단) | **PASS** | `pollingSchedule.test.ts` — `computePollingInterval(30000)==='stop'`, `(60000)==='stop'` |
+| AC-FE-063 / REQ-ENR-004·009 / INV-FE-002 (종단 판정 = `PENDING`의 여집합, 미지 문자열 포함) | **PASS** | `pollingSchedule.test.ts` — 알려진 8종 전부 종단 + `isTerminalStatus('SOME_FUTURE_VALUE_NEVER_SEEN')===true`(화이트리스트가 아님을 직접 증명) |
+| AC-FE-064 (종단 도달 후 호출 없음) | **PASS(코드 레벨)** | `pollingDecision.ts` — 종단 상태면 `decideNextPoll`이 `false` 반환(TanStack Query `refetchInterval` 계약상 자동 재조회 중단). **개발자 도구 네트워크 탭 실관측은 미수행** — 아래 "미수행 확인 항목" 참조 |
+| AC-FE-067 / REQ-ENR-009 (8종 서로 다른 문구 + 미지 값 대체) | **PASS** | `messages.test.ts` — 8종 문구의 `Set` 크기가 8(전부 상이) + 미지 값이 8종 어떤 문구와도 겹치지 않음 |
+| AC-FE-070 / REQ-ENR-010 (네트워크 오류 → 다음 주기 재시도) | **PASS** | `pollingDecision.test.ts` — `errorClassification:'network'`에서도 경과 시간 기준 간격을 그대로 반환(중단하지 않음) |
+| AC-FE-071 / REQ-ENR-010·REQ-SES-007 (401 → 재시도 없이 세션 폐기로 위임) | **PASS** | `pollingDecision.test.ts` — `errorClassification:'session-expired'`이면 무조건 `false`(다른 조건과 무관). 전역 세션 폐기 자체는 M2의 `client.ts` `notifySessionExpired`/`SessionContext`가 이미 담당(재구현하지 않고 재사용 — 과업 지시 B7) |
+| AC-FE-073a / REQ-ENR-011 (보존된 접수 시각 기준 재계산 — 3초 간격 + 30초 상한이 계산 시점이 아닌 접수 시점 기준) | **PASS** | `scheduleFromReceipt.test.ts` 2건 — 20초 전 접수 시각 복원 후 재계산 시 `3000` 반환 확인 + 접수로부터 정확히 30초 후 재계산 시 `'stop'`(재마운트 시각을 0초로 잘못 재기 시작했다면 이 값은 `1000`이었을 것) |
+| REQ-ENR-002 (202 직후 "접수됨/처리 중" 표현, 확정 표현 금지) | **PASS(코드 레벨)** | `RequestStatusPage.tsx` — `status==='PENDING'`일 때만 "접수됨 — 처리 중입니다..." 렌더링, 성공/확정을 뜻하는 문구 없음. 화면 렌더링 자체는 plan.md §D.1에 따라 자동 테스트 필수 범위 아님 |
+| REQ-ENR-008 (WAITLISTED 시 대기 순번 표시) | **PASS(코드 레벨)** | `RequestStatusPage.tsx` — `status==='WAITLISTED' && waitlistPosition != null`일 때 순번 병기 |
+| E1 (`tsc -b --force`) | **PASS** | exit=0, 출력 없음 |
+| E2 (lint, oxlint) | **PASS** | exit=0, 출력 없음 |
+| E3 (단위 테스트) | **PASS** | `npx vitest run` exit=0 — **13개 파일 91건** 전부 통과(M1+M2+M3 70건 + M4 신규 21건: pollingSchedule 7 · pollingDecision 5 · receiptStorage 4 · messages 3 · scheduleFromReceipt 2) |
+| E4 (프로덕션 빌드) | **PASS** | `npm run build`(`tsc -b && vite build`) exit=0, `dist/`(145 modules, `index-*.js` 275.68 kB / gzip 87.33 kB) |
+| B4/B11 (AskUserQuestion 미사용) | **PASS** | `grep -rn "AskUserQuestion" src` → 0건 |
+| B7 (401 처리 재구현 없음 — M2 전역 배선 재사용) | **PASS** | `pollingDecision.ts`가 재시도 억제만 담당하고, 실제 세션 폐기는 여전히 `client.ts`의 `subscribeToSessionExpired`/`SessionContext` 단일 지점(신규 401 판정 로직 없음) |
+
+**미수행 확인 항목 (수동/브라우저 — 이 위임 범위 밖, 오케스트레이터 후속 필요)**:
+
+이 위임 프롬프트(Section E)가 명시한 대로, 아래는 브라우저 실관측이 필요하며 이 실행에서는 수행하지 않았다 — REQ-NFR-007(자동 테스트만으로 완료 선언 금지)에 따라 미완료로 남긴다:
+
+- AC-FE-060/061/065/066/068/069/072/073b/074 계열 — 실제 브라우저에서 신청→접수 표시→폴링→종단 확정(SUCCESS/WAITLISTED) 관측, 정원 찬 강좌 대기 순번 관측, 상한 도달 후 수동 재확인 버튼 동작, 언마운트 후 잔여 호출 없음(네트워크 탭), **AC-FE-073b(새로고침 후 폴링 재개 — AC-FE-073a와 동일 동작이 실제 브라우저에서 재현되는지)**
+- **시드 데이터 필요**: M3이 남겨 둔 정원 10의 모집중 강좌(`id=1`)를 재사용할 수 있으나, `WAITLISTED` 관측(AC-FE-066)에는 **정원이 이미 찬 강좌**가 추가로 필요하다 — 관리자 API로 정원 1·확정 인원 1인 강좌를 새로 만들거나, 기존 강좌에 반복 신청으로 정원을 채운 뒤 확인해야 한다. 또한 실제로 "수강신청" 버튼을 눌러 접수 요청을 제출해야 폴링 화면이 생성되므로, 관리자 시딩만으로는 부족하고 **일반 회원 계정으로 실제 신청 제출**까지 필요하다(M3 시딩과의 차이점)
+- 확인 도구: `claude-in-chrome`(M1~M3과 동일 패턴)
+
+**잔여 위험 (Residual Risk)**:
+
+- `RequestStatusPage.tsx`의 "저장된 접수 시각이 없으면 지금으로 대체" 폴백은 설계 문서(design.md §A.4·§A.6)가 명시적으로 다루지 않은 예외 경로(다른 세션에서 발급된 URL을 붙여넣는 경우 등)에 대한 최선 노력(best-effort) 구현이다 — REQ-ENR-011의 규범 대상은 "동일 세션 내 새로고침"이며 이 폴백은 그 범위를 벗어난 방어적 코드다. AC로 명시 검증되지 않음.
+- 30초 상한의 반개구간 경계(`elapsedMs < 30000`이면 계속, `>= 30000`이면 중단)는 `plan.md`/`design.md`의 "30초 초과" 문구와 AC-FE-073a의 "30초 시점에 지시된다" 문구 사이의 근소한 표현 차이를 AC-FE-073a 쪽으로 해석해 구현했다 — 정확히 30.000초 시점의 동작이 실제 폴링 타이머 지터(주기가 3초 간격이므로 실제 중단은 29~32초 사이 어느 지점에서 발생)로 인해 관측상 이 경계가 육안으로 검증되기는 어렵다.
+
+**작업 트리 범위**: `frontend/src/enrollment/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `frontend/src/catalog/CourseDetailPage.tsx`(수정), `frontend/package.json`+`frontend/package-lock.json`(신규 의존성 2건), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경. (`.claude/settings.local.json`·`frontend/.moai/state/*.json`은 이 작업 이전 시점(20:12~20:28)에 이미 변경되어 있던 상태로, 이 위임 범위에서 손대지 않았다.)
+
+**커밋**: (M4 커밋은 이 progress.md 갱신과 함께 커밋됨 — SHA는 커밋 후 §E.3에서 백필)
+
+---
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_
