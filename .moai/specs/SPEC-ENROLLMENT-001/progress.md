@@ -1,7 +1,7 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — 진행 기록"
-version: "0.3.0"
+version: "0.3.1"
 status: completed
 created: 2026-08-15
 updated: 2026-08-17
@@ -74,6 +74,33 @@ Implementation Kickoff Approval → run (M1부터). 선행 `SPEC-AUTH-001`·`SPE
 ### 다음 단계 (개정분)
 
 Implementation Kickoff Approval → run (M7). 진입 시 Phase 1 plan-audit이 hash 변경으로 재실행된다.
+
+### v0.3.1 제자리 개정 (amendment) — 큐 처리 실패 진단 / M8 plan-phase signal
+
+> **이 개정은 기능 추가가 아니라 진단·버그 수정 마일스톤이다.** M1~M7은 전부 "새 동작을 만드는" 마일스톤이었으나 M8은 (Step A) 이미 있는 실패 경로에 **관측 수단**을 더하고, (Step B) 그 관측 결과에 따라 조사·조치한다. 위 v0.3.0 개정 절과 §E.2 M1~M7 기록은 **수정 대상이 아니며 그대로 유효하다.**
+
+- `plan_status`: audit-ready (개정분) — **plan-auditor 미실행.** 이 개정은 M1~M7의 설계·동작을 변경하지 않고 실패 경로에 기록만 추가하므로 전면 재감사를 전제하지 않는다. 다만 `spec.md`·`plan.md`·`acceptance.md`가 수정되어 **plan-artifact hash가 변경**되었으므로, `.claude/rules/moai/workflow/spec-workflow.md` § Phase 1 Plan Audit Gate의 skip 조건 3(artifact-hash unchanged)이 깨졌다 — **다음 `/moai run` 진입 시 Phase 1 plan-audit이 재실행된다.** 정상 동작이며 우회 대상이 아니다.
+- 상태 전이: `completed → in-progress` (spec.md frontmatter). `amendment_of: SPEC-ENROLLMENT-001`(자기 참조)은 v0.3.0에서 선언되어 그대로 유지된다. 직전 완료 SHA: `c80087e66ff940ca7a932f1780fc79a8a4586447` (§E.4 addendum `sync_commit_sha` — M7 sync-phase 마무리 커밋)
+- 개정 산출물: `spec.md`(HISTORY·`## Amendments` § 개정 2·§A.7·§B.9·INV-ENR-011·§D·§E 추가), `plan.md`(§A.4·§C.9·§F M8·§G 안티패턴 10행 추가), `acceptance.md`(AC-ENR-059~061·매트릭스 4행 추가·§D.4 3항 추가), `progress.md`(이 절). **`design.md`는 변경하지 않았다** — 이 개정은 API 계약도 데이터 모델도 처리 흐름도 바꾸지 않는다.
+- 신설: 요구사항 **3건**(REQ-DIAG-001 ~ 003) + 불변식 **1건**(INV-ENR-011) + 인수 기준 **3건**(AC-ENR-059 ~ 061)
+- 기존 항목 변경: **0건** — REQ·INV·AC 어느 것도 수정·삭제하지 않았다.
+
+**발견 경위와 확인 사실**
+
+후속 `SPEC-FRONTEND-001`의 run 단계 브라우저 검증 중 `POST /api/courses/{courseId}/enrollments` 요청이 **재현율 100%**(백엔드 3회 이상 재기동에 걸쳐 5회 이상 시도, 로컬 개발 환경의 datasource는 원격 Supabase 세션 풀러 `aws-0-ap-southeast-1.pooler.supabase.com`)로 `result='FAILED'`로 종결되는 현상이 관측되었다. 로그에는 `큐 요청 처리 시작 requestId=N requestType=ENROLL` / `큐 요청 처리 종료 requestId=N result=FAILED` 두 줄만 남고 예외 정보는 전무했다.
+
+plan-phase에서 `src/main/java/.../enrollment/worker/EnrollmentQueueWorker.java`를 **직접 재확인**하여 원인 구조를 특정했다 — `drainQueue()` 60~74행 중 **66~70행**의 `catch (RuntimeException ex)`가 포착한 `ex`를 **선언 후 한 번도 사용하지 않고 폐기**한다. 69행 `recordFailure(id)`는 예외를 인자로 받지 않으며 그 구현(`EnrollmentRequestProcessor` 115~123행)도 `result=FAILED` 한 줄만 남긴다. 관측된 로그 두 줄은 `processOne` 99행(시작)과 `recordFailure` 121행(종료)에서 나온 것이며, 정상 종료 로그(`processOne` 102행)가 없다는 사실이 예외 발생을 확증한다.
+
+**근본 원인은 아직 미지 — 이 개정이 규정하지 않는 것**
+
+`processOne`이 왜 예외를 던지는지는 **알려져 있지 않다.** 후보는 (a) `ENROLL` 디스패치 경로의 애플리케이션 결함, (b) 원격 세션 풀러를 쓰는 로컬 환경 고유의 네트워크/커넥션 요인, (c) 그 밖. **관측 없이는 판정할 수 없으므로** 요구사항으로는 관측 가능성(REQ-DIAG-001~003)만 규정하고, 원인 조사와 조치는 M8 Step B의 산출물로 두었다. 추측에 근거한 수정은 plan.md §G에서 명시적으로 금지된다.
+
+- **잔여 검증 부채**: AC-ENR-059 ~ 061은 **전건 미검증(M8 미구현)**. §E.2 / §E.3의 run 증거는 M1~M7(AC-ENR-001 ~ 058) 범위이며 이 개정으로 무효화되지 않는다. M8 구현 후 그 증거(특히 AC-ENR-061이 요구하는 **실제 관측된 예외 상세와 (a)/(b) 판정**)는 manager-develop이 §E.2 / §E.3에 기록한다 — 이 절(§E.1)은 plan-phase 신호만 담는다.
+- **재감사자를 위한 판정 안내**: M8은 "코드 결함을 고쳤다"와 "외부 요인으로 확인하고 기록했다" **두 가지 모두를 유효한 완료 상태로 인정**한다 (plan.md §F M8 전체 완료 판정). §E.2 M8 절만 읽고 어느 쪽인지 판별할 수 있어야 하며, (b)로 판정된 경우 근본 원인 미수정을 이유로 미완료 처리하지 않는다.
+
+### 다음 단계 (v0.3.1 개정분)
+
+Implementation Kickoff Approval → run (M8). **Step A(로깅) → Step B(조사·판정) 순서는 협상 대상이 아니다.** 진입 시 Phase 1 plan-audit이 hash 변경으로 재실행된다.
 
 ## §F Phase 4 Mode Selection
 
