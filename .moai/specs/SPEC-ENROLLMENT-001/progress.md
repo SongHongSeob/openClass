@@ -1273,5 +1273,5 @@ frontmatter_transitions:
 m7_scope_closed: "AC-ENR-054..058 (5건) — DEP-2(SPEC-FRONTEND-001) 계약 폐쇄"
 known_residual_risks_carried_forward:
   - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4/M5/M6/M7) 미확보 — §E.2 M7 잔여 위험 1번, §E.3 known_residual_risks 참고. 코드 결함 아님(로컬 Docker 자원 고갈, M6에서 근본 원인 규명 완료)"
-sync_commit_sha: pending-backfill-m7-sync  # D3 예외 — 이 커밋 자신의 SHA는 커밋 후 별도 백필 필요
+sync_commit_sha: c80087e66ff940ca7a932f1780fc79a8a4586447  # backfilled per D3 예외
 ```
