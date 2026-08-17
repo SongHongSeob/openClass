@@ -6,7 +6,7 @@
 | 상태 | `in-progress` |
 | 버전 | `0.2.2` |
 | Tier | L |
-| 현재 단계 | run — M1 완료 (워크스페이스 부트스트랩 + 공통 기반). M2 착수 대기 |
+| 현재 단계 | run — M1~M6 코드 레벨 완료. M6 브라우저 수동 확인 미실시(오케스트레이터 후속 필요). M7(수동 시나리오 확인, S1~S14)만 남음 — REQ-NFR-007에 따라 자동 검증만으로 이 SPEC의 run-phase를 완료 처리할 수 없음 |
 
 ---
 
@@ -420,6 +420,59 @@ M4와 달리 큐/워커에 의존하지 않아 예상대로 안정적으로 확�
 **작업 트리 범위**: `frontend/src/admin/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. `frontend/src/routing/guardLogic.ts`·`guards.tsx`·`frontend/src/api/errors.ts`는 무변경(기존 로직 재사용만, 확장 불필요 — 위 AC-FE-089 근거란 참고). 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경.
 
 **커밋**: (M5 커밋은 이 progress.md 갱신과 함께 커밋됨 — SHA는 커밋 후 §E.3에서 백필)
+
+---
+
+### M6 — 취소 (마지막 구현 마일스톤)
+
+**대상 요구사항**: `REQ-CNL-001`~`010`
+
+**산출물**:
+
+- `src/api/endpoints.ts` 확장 — `getMyEnrollments`(`GET /api/enrollments/mine`, 13번) / `getMyWaitlistEntries`(`GET /api/waitlist-entries/mine`, 14번) / `cancelEnrollment`(`DELETE /api/enrollments/{enrollmentId}`, 7번, 202) / `cancelWaitlistEntry`(`DELETE /api/waitlist-entries/{entryId}`, 8번, 200 동기). 14개 엔드포인트 전수 배선 완료
+- `src/cancellation/cancellationModel.ts` (+`.test.ts`, 11건, TDD RED→GREEN 확인) — 순수 로직 지점: `toListView`(REQ-CNL-007/008, 빈 배열→`empty` / 응답 순서 무재정렬) / `resolveEnrollmentCancelTarget`(REQ-CNL-001, `enrollmentId`) / `resolveWaitlistCancelTarget`(REQ-CNL-003/INV-FE-009, **`waitlistEntryId`이며 `position`이 아님** — RED 테스트로 `position`과 다른 값이 반환되는지 직접 검증) / `formatWaitlistPositionLabel`(REQ-CNL-010/INV-FE-011/AC-FE-112, `position`을 항상 `courseTitle`과 나란한 단일 문구로만 렌더링, "내 대기 순위"·"승격 예정 순서" 미사용) / `decidePostCancelAction`(REQ-CNL-009, 취소 성공 후 항상 `'refetch'`) / `describeCancelError`(REQ-CNL-005, 403/404를 구별 불가능한 동일 문구로 통합 — `errors.ts`의 상태별 문구를 그대로 쓰지 않음)
+- `src/cancellation/MyEnrollmentsPage.tsx` — 내 수강신청 목록. 취소 성공 시 M4의 `/requests/:requestId` 폴링 경로로 이동(REQ-CNL-001/002) — **신규 폴링 코드 없이 `useRequestStatus`/`RequestStatusPage`/`enrollment/messages.ts`의 기존 `CANCELLED` 문구를 그대로 재사용**
+- `src/cancellation/MyWaitlistPage.tsx` — 내 대기명단 목록. 취소는 200 동기 응답이므로 폴링 없이 같은 화면에서 `decidePostCancelAction()==='refetch'`에 따라 `load()` 재호출(REQ-CNL-003/009)
+- `src/App.tsx` 수정 — `AuthenticatedView`에 "내 수강신청"·"내 대기명단" 버튼 추가(역할 무관, 인증 세션이면 항상 노출). 라우트 2개 신설: `/enrollments/mine`·`/waitlist/mine`(둘 다 `RequireAuth` — REQ-SES-009, 세션 없으면 `/`로 유도)
+
+**AC / 항목 판정 (근거)**:
+
+| AC / 항목 | 판정 | 근거 |
+|---|---|---|
+| REQ-CNL-001 (확정 취소 대상 `enrollmentId`만 유래, 202 후 폴링 개시) | **PASS(코드 레벨)** | `cancellationModel.test.ts` — `resolveEnrollmentCancelTarget`이 `enrollmentId`를 반환. `MyEnrollmentsPage.tsx`는 `cancelEnrollment` 응답의 `requestId`로 `saveReceiptTimestamp` 후 `/requests/${requestId}`로 이동 — M4 폴링 훅을 그대로 재사용 |
+| REQ-CNL-002 (202 직후 확정 완료 표현 미사용) | **PASS(코드 레벨, 회귀 없음)** | 신규 표시 문구를 만들지 않고 M4의 `RequestStatusPage.tsx`(PENDING="접수됨 — 처리 중입니다")를 그대로 재사용 — M6는 이 컴포넌트를 수정하지 않음(`git diff` 대상 아님) |
+| REQ-CNL-003 / INV-FE-009 (대기 취소 대상 `waitlistEntryId`, `position` 아님, 200 동기·폴링 미개시) | **PASS(코드 레벨)** | `cancellationModel.test.ts` — `waitlistEntryId:5, position:999`인 항목에서 `resolveWaitlistCancelTarget()===5`이고 `!==999`임을 직접 검증(잘못 배선되면 실패하는 RED 테스트). `MyWaitlistPage.tsx`는 `cancelWaitlistEntry` 성공 후 라우트 이동 없이 `load()`만 호출 — 폴링 훅(`useRequestStatus`)을 import하지 않음 |
+| REQ-CNL-004 / INV-FE-008 (취소 대상 식별자는 사용자 입력이 아닌 목록 응답에서만 유래) | **PASS(검사)** | `MyEnrollmentsPage.tsx`/`MyWaitlistPage.tsx`에 텍스트 입력 필드 없음 — `handleCancel(item)`은 목록 렌더링에서 얻은 `item` 객체만 인자로 받고, 사용자 입력을 식별자로 받는 코드 경로 자체가 없음 |
+| REQ-CNL-005 (403/404 구별 불가능한 통합 안내) | **PASS(코드 레벨)** | `cancellationModel.test.ts` — `describeCancelError`가 403·404 두 `ApiError`(서로 다른 `errors.ts` 상태별 문구)에 대해 동일한 문자열을 반환함을 직접 비교로 검증. 두 화면 모두 취소 실패 시 이 함수의 반환값만 렌더링 |
+| REQ-CNL-006 (목록 조회 2종에 회원 식별자 미포함) | **PASS(검사)** | `getMyEnrollments`/`getMyWaitlistEntries` 시그니처가 `token` 하나만 받고 쿼리·경로·본문 어디에도 식별자를 싣지 않음(`endpoints.ts` 그대로 확인 가능) |
+| REQ-CNL-007 / INV-FE-010 (빈 배열 → "내역 없음", 오류 아님) | **PASS(코드 레벨)** | `cancellationModel.test.ts` — `toListView([])===  {status:'empty'}`. 두 화면 모두 `empty` 상태에서 `<p>보유 내역 없음 — ...</p>`를 렌더링하며 `role="alert"`(오류 표시 패턴)를 사용하지 않음 |
+| REQ-CNL-008 (응답 순서 그대로, 재정렬 없음) | **PASS(코드 레벨)** | `cancellationModel.test.ts` — `enrollmentId` 순서 `[30,10,20]`(오름차순이 아닌 임의 순서)을 넣었을 때 `toListView`의 `items`가 동일 순서로 보존됨을 검증(`.sort()` 호출이 코드에 없음). 두 화면 모두 `items.map`으로 그대로 렌더링 |
+| REQ-CNL-009 (취소 성공 후 재조회, 로컬 스플라이스 아님) | **PASS(코드 레벨)** | `cancellationModel.test.ts` — `decidePostCancelAction()`이 항상 `'refetch'`만 반환(로컬 제거를 지시하는 값이 타입에 존재하지 않음). `MyWaitlistPage.tsx`는 이 값에 따라 `load()`를 재호출하고 `items.filter(...)` 같은 로컬 제거 코드가 없음. `MyEnrollmentsPage.tsx`는 취소 성공 시 라우트 이동으로 화면이 언마운트되므로, 재진입 시 `useEffect`가 새로 마운트되어 자연히 재조회됨 |
+| REQ-CNL-010 / INV-FE-011 / AC-FE-112 (`position`은 `courseTitle`과 나란히, 전역 순위 표현 미사용) | **PASS(코드 레벨)** | `cancellationModel.test.ts` — `formatWaitlistPositionLabel`이 `courseTitle`·`position` 모두를 포함하는 단일 문자열을 반환하고, 같은 `position`이라도 `courseTitle`이 다르면 다른 문자열을 만듦(전역 순위가 아님을 실증) + "내 대기 순위"·"승격 예정 순서" 미포함을 직접 assert. `MyWaitlistPage.tsx`는 `item.position`을 단독으로 렌더링하지 않고 이 함수의 반환값만 사용 |
+| E1 (`tsc -b --force`) | **PASS** | exit=0, 출력 없음 |
+| E2 (lint, oxlint) | **PASS** | exit=0, 출력 없음 |
+| E3 (단위 테스트) | **PASS** | `npx vitest run` exit=0 — **15개 파일 114건** 전부 통과(M1~M5 103건 + M6 신규 11건: `cancellationModel.test.ts`) |
+| E4 (프로덕션 빌드) | **PASS** | `npm run build`(`tsc -b && vite build`) exit=0, `dist/`(151 modules, `index-*.js` 286.17 kB / gzip 89.36 kB) |
+| B4/B11 (AskUserQuestion 미사용) | **PASS** | `grep -rn "AskUserQuestion" frontend/src/` → 0건 |
+| plan.md §E12 (취소 식별자 정합 — `position`을 경로 변수로 넘기는 코드 경로 grep) | **PASS** | `grep -rn "cancelWaitlistEntry(.*position" frontend/src/` → 0건. `cancelWaitlistEntry`를 호출하는 유일한 지점(`MyWaitlistPage.tsx`)은 `resolveWaitlistCancelTarget(item)`만 인자로 전달 |
+
+**브라우저 수동 확인 — 미실시 (오케스트레이터 후속 필요, `claude-in-chrome`)**:
+
+이 마일스톤은 코드 레벨 검증(단위 테스트 + 정적 grep + 타입/린트/빌드)만 완료했다. `REQ-NFR-007`(수동 시나리오 확인 필수, D8)에 따라 자동 검증만으로 M6를 최종 완료 처리할 수 없다 — plan.md M7(S10~S12)이 이를 명시적으로 요구한다.
+
+- **필요한 시나리오**: (1) 확정 수강신청 1건 이상을 보유한 계정으로 "내 수강신청" 진입 → 목록의 항목 취소 → `/requests/:id`로 이동 → 폴링 후 "취소가 완료되었습니다" 표시 확인(S10). (2) 대기명단 항목 1건 이상을 보유한 계정으로 "내 대기명단" 진입 → 항목 취소 → 200 동기 응답 후 목록에서 즉시 사라짐(폴링 화면으로 이동하지 않음) 확인(S11). (3) 두 목록 모두 0건인 신규 계정으로 진입 → "보유 내역 없음" 표시(오류 아님) 확인(S12).
+- **필요한 테스트 데이터**: 확정 수강신청 보유 계정 1개(확정 취소 시나리오용) + 대기명단 항목 보유 계정 1개(대기 취소 시나리오용). M4/M5 progress.md 기록에 따르면 이 세션 동안 대기명단 재현이 백엔드 워커/큐 환경의 간헐적 문제(Docker/Testcontainers 플레이키니스 — 이전 세션 메모리 기록)로 실패했었다 — **이번 M6 작업에서는 대기명단 데이터 생성을 시도하지 않았다**(코드 구현에 집중). 확정 수강신청 데이터는 M5 확인 세션에서 `admin@local.test`가 아닌 일반 계정으로 신청을 성공시킨 이력이 있으면 재사용 가능할 수 있으나, 이번 세션에서 직접 확인하지 않았다.
+- **오케스트레이터 후속 시 참고**: `/enrollments/mine`·`/waitlist/mine` 라우트는 이미 배선되어 있으므로, 로그인 후 "내 수강신청"·"내 대기명단" 버튼을 클릭하는 것만으로 진입 가능하다.
+
+**잔여 위험 (Residual Risk)**:
+
+- 위 브라우저 수동 확인 3개 시나리오(S10~S12) 전부 미실시 — 코드 레벨 검증만으로는 REQ-NFR-007을 충족하지 못한다.
+- `MyEnrollmentsPage.tsx`가 취소 후 이동하는 `/requests/:requestId` 화면에서 최종적으로 `CANCELLED` 상태를 실제로 수신하는지(백엔드 취소 워커가 정상 동작하는지)는 이번 세션에서 실측하지 않았다 — M4가 기록한 `WAITLISTED` 재현 실패와 유사한 백엔드 환경 이슈가 취소 큐에서도 재발할 가능성을 배제할 수 없다.
+- `describeCancelError`의 403/404 통합 문구가 실제 백엔드 오류 응답에서도 동일하게 동작하는지는 단위 테스트(모의 `ApiError`)로만 검증했고, 실제 타인 소유 항목에 대한 취소 시도는 수행하지 않았다.
+
+**작업 트리 범위**: `frontend/src/cancellation/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. `frontend/src/enrollment/**`(폴링 훅·메시지 테이블 포함)는 무변경 — M4 산출물을 재사용만 했다. 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경.
+
+**커밋**: (M6 커밋은 이 progress.md 갱신과 함께 커밋됨 — SHA는 커밋 후 §E.3에서 백필)
 
 ---
 

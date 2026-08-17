@@ -1,10 +1,20 @@
 // @MX:NOTE: [AUTO] 14개 엔드포인트 호출 함수의 성장 지점(design.md §A.8).
 // M2는 인증 2종(signup·login)을 추가했고, M3은 공개 카탈로그 2종(목록·상세)을
 // 추가했다. M4는 수강신청 접수(#5)·상태 조회(#6) 2종을 추가했다. M5는 관리자
-// 3종(생성·수정·마감, #9~11)을 추가한다 — 나머지 2개(취소, #7·8)는 M6이 채운다.
+// 3종(생성·수정·마감, #9~11)을 추가했다. M6이 나머지 4종(내 목록 조회 2종
+// #13·14, 취소 2종 #7·8)을 채워 14개 전수를 완성한다.
 
 import { apiFetch } from './client'
-import type { Course, CoursePage, LoginResult, Receipt, RequestStatus, SignupResult } from './types'
+import type {
+  Course,
+  CoursePage,
+  EnrollmentListItem,
+  LoginResult,
+  Receipt,
+  RequestStatus,
+  SignupResult,
+  WaitlistListItem,
+} from './types'
 
 export interface SignupPayload {
   email: string
@@ -93,4 +103,41 @@ export function updateCourse(id: number, payload: CourseFormPayload, token: stri
  */
 export function closeCourse(id: number, token: string): Promise<Course> {
   return apiFetch<Course>(`/api/admin/courses/${id}/close`, { method: 'POST', token })
+}
+
+/**
+ * `GET /api/enrollments/mine` — REQ-CNL-006, spec.md §A.4 13번. 회원 식별자를
+ * 질의 파라미터·경로 변수·본문 어디에도 싣지 않는다 — 인증 주체에서만
+ * 범위가 유도된다. 0건이면 `200` + `[]`(REQ-CNL-007, 404 아님).
+ */
+export function getMyEnrollments(token: string): Promise<EnrollmentListItem[]> {
+  return apiFetch<EnrollmentListItem[]>('/api/enrollments/mine', { token })
+}
+
+/**
+ * `GET /api/waitlist-entries/mine` — REQ-CNL-006, spec.md §A.4 14번. 13번과
+ * 동일하게 회원 식별자를 신지 않는다.
+ */
+export function getMyWaitlistEntries(token: string): Promise<WaitlistListItem[]> {
+  return apiFetch<WaitlistListItem[]>('/api/waitlist-entries/mine', { token })
+}
+
+/**
+ * `DELETE /api/enrollments/{enrollmentId}` — REQ-CNL-001, spec.md §A.4 7번.
+ * 202(Accepted) — 취소도 큐를 경유하므로 확정이 아니다(REQ-CNL-002).
+ * `enrollmentId`는 반드시 {@link getMyEnrollments} 응답에서만 유래해야 한다
+ * (`cancellation/cancellationModel.ts`의 `resolveEnrollmentCancelTarget`).
+ */
+export function cancelEnrollment(enrollmentId: number, token: string): Promise<Receipt> {
+  return apiFetch<Receipt>(`/api/enrollments/${enrollmentId}`, { method: 'DELETE', token })
+}
+
+/**
+ * `DELETE /api/waitlist-entries/{entryId}` — REQ-CNL-003, spec.md §A.4 8번.
+ * 200 동기 응답(본문 없음) — 확정 취소와 달리 폴링을 개시하지 않는다.
+ * 경로 변수는 반드시 `waitlistEntryId`이며 `position`이 아니다(INV-FE-009,
+ * `cancellation/cancellationModel.ts`의 `resolveWaitlistCancelTarget`).
+ */
+export function cancelWaitlistEntry(waitlistEntryId: number, token: string): Promise<void> {
+  return apiFetch<void>(`/api/waitlist-entries/${waitlistEntryId}`, { method: 'DELETE', token })
 }

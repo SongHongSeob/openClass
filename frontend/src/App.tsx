@@ -13,6 +13,8 @@ import { RequestStatusPage } from './enrollment/RequestStatusPage'
 import { AdminCoursesPage } from './admin/AdminCoursesPage'
 import { AdminCourseFormPage } from './admin/AdminCourseFormPage'
 import { resolveAdminGuardFallback, shouldShowAdminMenu } from './admin/adminModel'
+import { MyEnrollmentsPage } from './cancellation/MyEnrollmentsPage'
+import { MyWaitlistPage } from './cancellation/MyWaitlistPage'
 
 // M2 — 회원가입·로그인·세션 수립/복원/폐기의 최소 실행 흐름(plan.md M2 완료
 // 판정: 브라우저에서 회원가입→로그인→새로고침 유지→탭 종료 후 소멸 확인).
@@ -24,6 +26,11 @@ import { resolveAdminGuardFallback, shouldShowAdminMenu } from './admin/adminMod
 // 기존 콜백 기반 지역 상태(useState) 전환을 그대로 유지한다 — 이 화면들은
 // URL 직접 진입이 요구사항이 아니므로 전환할 이유가 없다(과업 지시 B1의
 // 부분 전환 허용).
+// M6 — `/enrollments/mine`·`/waitlist/mine`을 추가한다(REQ-CNL-006). 확정
+// 취소는 응답의 requestId로 기존 `/requests/:requestId` 폴링 경로로 이동한다
+// (REQ-CNL-001·002 — enrollment/RequestStatusPage.tsx·useRequestStatus.ts를
+// 그대로 재사용, 신규 폴링 코드 없음). 대기명단 취소는 200 동기 응답이므로
+// 같은 화면에 머물러 재조회한다(REQ-CNL-003·009).
 type Screen = 'signup' | 'login'
 
 function AuthenticatedView() {
@@ -39,6 +46,13 @@ function AuthenticatedView() {
         {session.email}로 로그인되어 있습니다. (역할: {session.role})
       </p>
       <LogoutButton />
+      {/* REQ-CNL-006 — 인증된 회원이면 항상 노출한다(역할 무관). */}
+      <button type="button" onClick={() => navigate('/enrollments/mine')}>
+        내 수강신청
+      </button>
+      <button type="button" onClick={() => navigate('/waitlist/mine')}>
+        내 대기명단
+      </button>
       {/* REQ-ADM-001 — 관리자 화면 진입 수단은 role === 'ADMIN'일 때만 노출한다. */}
       {shouldShowAdminMenu(session.role) && (
         <button type="button" onClick={() => navigate('/admin/courses')}>
@@ -179,10 +193,35 @@ function RequestStatusRoute() {
   )
 }
 
+/**
+ * `/enrollments/mine` 진입점 — REQ-SES-009 인증 가드. 세션이 없으면 `/`로
+ * 유도한다(AnonymousView가 기본으로 로그인 화면을 보여준다).
+ */
+function MyEnrollmentsRoute() {
+  const { session } = useSession()
+  return (
+    <RequireAuth fallback={<Navigate to="/" replace />}>
+      {session.status === 'authenticated' ? <MyEnrollmentsPage token={session.token} /> : null}
+    </RequireAuth>
+  )
+}
+
+/** `/waitlist/mine` 진입점 — REQ-SES-009 인증 가드. `MyEnrollmentsRoute`와 동일한 구조. */
+function MyWaitlistRoute() {
+  const { session } = useSession()
+  return (
+    <RequireAuth fallback={<Navigate to="/" replace />}>
+      {session.status === 'authenticated' ? <MyWaitlistPage token={session.token} /> : null}
+    </RequireAuth>
+  )
+}
+
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/requests/:requestId" element={<RequestStatusRoute />} />
+      <Route path="/enrollments/mine" element={<MyEnrollmentsRoute />} />
+      <Route path="/waitlist/mine" element={<MyWaitlistRoute />} />
       <Route path="/admin/courses" element={<AdminCoursesRoute />} />
       <Route path="/admin/courses/new" element={<AdminCourseCreateRoute />} />
       <Route path="/admin/courses/:id/edit" element={<AdminCourseEditRoute />} />
