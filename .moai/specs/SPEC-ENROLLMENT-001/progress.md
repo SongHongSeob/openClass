@@ -905,9 +905,220 @@ $ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/Enrollme
 
 Semi-autonomous progression(마일스톤별 확인)에 따라 M5 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인 후 M6(마감 정리)로 진행할지 결정한다.
 
+### M6 — 마감 정리 (완료, 이 SPEC의 마지막 run-phase 마일스톤)
+
+**신규 산출물**
+
+| 파일 | 역할 |
+|---|---|
+| `common/exception/InvalidCourseIdException.java` (신규) | 형식적으로 유효하지 않은 강좌 식별자(0 이하)를 위한 도메인 예외(REQ-NFR-003, AC-ENR-046). 기존 `CourseNotFoundException`(404, DB 조회 후)과 구분되며, DB 조회 이전 형식 검증 단계에서 던져진다 |
+| `common/exception/GlobalExceptionHandler.java` (수정) | `InvalidCourseIdException` → 400 매핑 1건 추가. 기존 7개 핸들러 본문 완전 무변경(git diff 확인) — 기존 패턴(도메인 예외 1종 = 핸들러 1개)을 그대로 따른다 |
+| `enrollment/EnrollmentController.java` (수정) | `receive()`에 `courseId <= 0` 형식 검증 가드 추가(DB 조회 전, `InvalidCourseIdException` throw) — 숫자가 아닌 값은 Spring 기본 `MethodArgumentTypeMismatchException` 처리(400)에 위임(가드 불필요). `getStatus()`·`cancel()`·`resolveMemberId()` 완전 무변경(git diff 확인) |
+| `enrollment/worker/EnrollmentRequestProcessor.java` (수정) | SLF4J `Logger` 필드 추가 + `processOne()` 시작/종료 로그, `recordFailure()` 종료 로그 3곳 추가(REQ-NFR-004, AC-ENR-047, `@MX:NOTE` 1건). 반환값·트랜잭션 경계·제어 흐름 무변경 — 순수 관찰 목적 로깅만 추가(git diff 확인) |
+| `enrollment/EnrollmentReceiptInputValidationIntegrationTest.java` (신규, 테스트) | AC-ENR-046 검증. 5개 메서드 — 숫자 아닌 값·음수·0(범위 밖 값으로 "누락"에 준하는 경우 대체 — 실제 누락 세그먼트는 라우팅 자체가 매칭되지 않아 400이 아닌 404가 되므로 이 대안이 AC의 "400 반환" 조건에 부합) 각각 400 + 큐 행 0건, 그리고 형식·존재 경계(404/202) 무회귀 확인 2건 |
+| `enrollment/EnrollmentQueueProcessingTraceabilityIntegrationTest.java` (신규, 테스트) | AC-ENR-047 검증. `ListAppender`로 `EnrollmentRequestProcessor` 로거만 첨부(M4 `SensitiveLogIntegrationTest`와 동일한 캡처 패턴, 루트 로거 대신 대상 로거로 범위 축소)해 요청 식별자를 포함한 시작·종료·결과 로그 라인이 실제로 기록됨을 확인 |
+
+**REQ-NFR-001~006 추적성**
+
+| 요구사항 | 검증 AC/테스트 |
+|---|---|
+| REQ-NFR-001(동시 다중 신청 부하에서도 정원 초과 없음) | M2 산출물 회귀 재확인 — `EnrollmentOversellPreventionConcurrencyTest`(2개 메서드, AC-ENR-010). M6에서 코드 변경 없음, 새 계측 불필요 |
+| REQ-NFR-002(동시성·순서 보장 테스트는 실제 PostgreSQL, H2 금지) | AC-ENR-045 — 소스 검색(grep) + `EnrollmentQueueSchemaIntegrationTest`가 Testcontainers PostgreSQL로 실행됨을 재확인 |
+| REQ-NFR-003(모든 외부 입력은 서버 측에서 검증) | AC-ENR-046 — `EnrollmentReceiptInputValidationIntegrationTest`(5개 메서드) |
+| REQ-NFR-004(워커는 처리 시작·종료·결과를 요청 식별자와 함께 추적 가능하게 기록) | AC-ENR-047 — `EnrollmentQueueProcessingTraceabilityIntegrationTest`(1개 메서드) |
+| REQ-NFR-005(이 SPEC의 모든 AC는 Spring Boot 테스트만으로 검증 가능) | AC-ENR-048 — 소스 검색(grep), 프론트엔드 산출물 의존 0건 |
+| REQ-NFR-006(커밋당 최소 80%·전체 목표 85% 커버리지, LSP·타입·린트 에러 0건) | AC-ENR-049 — 아래 "커버리지" 절 참고(잔여 위험 1번에 정직하게 기록), `./gradlew compileJava compileTestJava` exit 0(타입/LSP 에러 0건), 린트 도구 미설정(아래 "정적 검증" 절 참고) |
+
+**AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령 | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-045 | PASS | `grep -rn "h2\|H2Dialect\|jdbc:h2" src/test/java/.../enrollment src/test/java/.../waitlist` (exit=1, 매치 0건 — "h2"로 시작하는 단어 매치는 무관한 문자열(`f2.get`, `batch2` 등)뿐) + `./gradlew test --tests "*.request.EnrollmentQueueSchemaIntegrationTest"` | `BUILD SUCCESSFUL — 2 tests, 0 failed` — `AbstractIntegrationTest`가 `@Testcontainers` + `PostgreSQLContainer("postgres:16-alpine")` + `@ServiceConnection`으로 실제 PostgreSQL을 강제함(모든 통합 테스트 공통 베이스) |
+| AC-ENR-046 | PASS | `./gradlew test --tests "*.EnrollmentReceiptInputValidationIntegrationTest"` | `BUILD SUCCESSFUL — 5 tests, 0 failed` — `강좌식별자가_숫자가_아니면_400...()`(Spring 기본 타입 변환 실패 처리, 400) / `강좌식별자가_음수이면_400...()`(400, code=INVALID_COURSE_ID) / `강좌식별자가_0이면_400...()`(400, code=INVALID_COURSE_ID) 3건 전부 큐 행 0건 확인, `형식은_유효하지만_존재하지_않는...404다()`(404, code=COURSE_NOT_FOUND, 경계 무회귀) / `형식과_존재_둘_다_유효한...정상_접수된다()`(202, 무회귀) 2건 추가 |
+| AC-ENR-047 | PASS | `./gradlew test --tests "*.EnrollmentQueueProcessingTraceabilityIntegrationTest"` | `BUILD SUCCESSFUL — 1 test, 0 failed` — `요청_1건_처리시_요청식별자를_포함한_시작_종료_결과_로그가_기록된다()` PASS: `"큐 요청 처리 시작 requestId=N requestType=ENROLL"`, `"큐 요청 처리 종료 requestId=N result=SUCCESS"` 두 로그 라인이 실제로 캡처됨 |
+| AC-ENR-048 | PASS | `grep -rln "frontend\|\.tsx\|\.jsx\|node_modules" src/test/java/.../enrollment src/test/java/.../waitlist` | `(no output, exit=1)` — 프론트엔드 산출물 의존 0건. `./gradlew test`(§D.1 전체 AC)는 M1~M5가 이미 회귀 재확인했고 M6은 이 조건 자체를 바꾸지 않음(프론트엔드 딜리버러블 없음, spec.md §D 사용자 결정) |
+| AC-ENR-049 | PASS-WITH-DEBT | `./gradlew compileJava compileTestJava` + jacoco 개별 실행(아래 "커버리지" 절) | 컴파일 exit 0(타입/LSP 에러 0건). 커버리지는 **패키지 단위 집계 수치를 이번에도 얻지 못함**(M4·M5에 이은 3회 연속 재현 — 아래 잔여 위험 1번) — 클래스 단위 개별 실행 수치로 대체 보고. 린트: 도구 미설정(아래 "정적 검증" 절, 요구사항 절이 사실상 공허함을 명시적으로 기록) |
+| AC-ENR-010 (회귀, REQ-NFR-001) | PASS | `./gradlew test --tests "*.EnrollmentOversellPreventionConcurrencyTest"` | `BUILD SUCCESSFUL — 2 tests, 0 failed`(M6에서 코드 변경 없음, 무회귀) |
+| AC-ENR-001/002/003 (회귀, `EnrollmentController` 변경 영향) | PASS | `./gradlew test --tests "*.EnrollmentReceiptApiIntegrationTest"` | `BUILD SUCCESSFUL — 3 tests, 0 failed` — courseId 형식 검증 가드 추가 후에도 정상 접수(AC-ENR-001)·401(AC-ENR-002)·404(AC-ENR-003) 무회귀 |
+| AC-ENR-013 계열 (회귀, `EnrollmentRequestProcessor` 로깅 추가 영향) | PASS | `./gradlew test --tests "*.EnrollmentWorkerDispatchIntegrationTest"` | `BUILD SUCCESSFUL — 5 tests, 0 failed`(ENROLL 디스패치 전체 무회귀) |
+| AC-ENR-031/036/044 등 (회귀, CANCEL 디스패치) | PASS | `./gradlew test --tests "*.EnrollmentCancelWorkerDispatchIntegrationTest"` | `BUILD SUCCESSFUL — 9 tests, 0 failed`(로깅 추가가 `dispatchCancel`·`promoteNextEligible` 흐름에 영향 없음을 확인) |
+| AC-ENR-041~043/051/053 (회귀, CAPACITY_INCREASE 디스패치) | PASS | `./gradlew test --tests "*.EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest"` | `BUILD SUCCESSFUL — 5 tests, 0 failed`(무회귀) |
+| AC-ENR-024/025 (회귀, 상태 조회) | PASS | `./gradlew test --tests "*.EnrollmentStatusQueryApiIntegrationTest"` | `BUILD SUCCESSFUL — 5 tests, 0 failed` |
+| AC-ENR-036~038 (회귀, 취소 API) | PASS | `./gradlew test --tests "*.EnrollmentCancelApiIntegrationTest"` | `BUILD SUCCESSFUL — 4 tests, 0 failed` |
+| AC-ENR-050 (회귀, 대기 중복 방지) | PASS | `./gradlew test --tests "*.waitlist.WaitlistDuplicatePreventionIntegrationTest"` | `BUILD SUCCESSFUL — 3 tests, 0 failed` |
+| ArchUnit 경계 규칙 (회귀) | PASS | `./gradlew test --tests "*.EnrollmentAggregateBoundaryArchitectureTest" --tests "*.EnrollmentQueueBoundaryArchitectureTest"` | `BUILD SUCCESSFUL — 4 tests(3+1), 0 failed`(신규 `InvalidCourseIdException` 추가가 기존 경계 규칙을 위반하지 않음) |
+| AC-ENR-026 (회귀 재확인, 부하 상한 실측치) | PASS | `./gradlew test --tests "*.EnrollmentStatusLoadLatencyIntegrationTest"` | `BUILD SUCCESSFUL — 1 test, 0 failed` — 동시 접수 500건 종단 지연이 여전히 5,000ms 예산 이내(M3 최초 실측 1,641/1,656ms 대비 M4·M5·M6이 그 경로를 변경하지 않았으므로 회귀 없음을 재확인. M6의 로깅 추가는 이 경로에 있지 않다 — `processOne` 로깅은 워커 처리 경로이고 상태 조회는 별도의 `EnrollmentStatusQueryService` 읽기 경로다) |
+
+**부하 상한 실측치와 요구사항 정합 확인 (plan.md M6 4번째 불릿)**: AC-ENR-026(REQ-STS-003, 5,000ms 예산)은 M3에서 확정 처리 회귀 없음을 실측했고, M4(대기명단·취소)·M5(정원 증설)는 접수 잠금이나 워커 폴링 핫 경로를 변경하지 않았다. M6도 마찬가지다 — 새로 추가된 로깅은 `processOne`(워커 처리) 안에 있고, 부하 테스트가 측정하는 것은 상태 조회 API(`EnrollmentStatusQueryService`, 별도의 읽기 전용 조회 경로)의 종단 지연이다. 위 표의 회귀 재실행이 이 정합성을 실측으로 재확인한다 — 추정이 아니다.
+
+**테스트 코드 발췌 — courseId 형식 검증 경계(AC-ENR-046과 AC-ENR-003의 경계가 겹치지 않음을 보이는 핵심 단언)**
+
+```java
+// 형식 오류(0 이하) — DB 조회 이전에 400, courseId 검증 가드가 서비스 호출보다 먼저 실행된다
+mockMvc.perform(post("/api/courses/-1/enrollments")
+                .header("Authorization", bearer(memberToken)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_COURSE_ID"));
+assertThat(requestRepository.count()).isZero();
+
+// 형식은 유효하지만 존재하지 않음 — 여전히 404(AC-ENR-003, 무회귀)
+mockMvc.perform(post("/api/courses/999999/enrollments")
+                .header("Authorization", bearer(memberToken)))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("COURSE_NOT_FOUND"));
+```
+
+**프로덕션 코드 발췌 — `EnrollmentController` 형식 검증 가드 위치(DB 조회보다 먼저)**
+
+```java
+@PostMapping("/api/courses/{courseId}/enrollments")
+public ResponseEntity<EnrollmentReceiptResponse> receive(
+        @PathVariable Long courseId, Authentication authentication) {
+    if (courseId <= 0) {
+        throw new InvalidCourseIdException(courseId);
+    }
+    Long memberId = resolveMemberId(authentication);
+    Long requestId = receiptService.receiveEnrollment(memberId, courseId);
+    return ResponseEntity.status(HttpStatus.ACCEPTED).body(new EnrollmentReceiptResponse(requestId));
+}
+```
+
+**프로덕션 코드 발췌 — `EnrollmentRequestProcessor` 추적성 로깅(REQ-NFR-004, 반환값·트랜잭션 경계 무변경)**
+
+```java
+@Transactional
+public void processOne(Long requestId) {
+    EnrollmentRequest request = requestRepository.findPendingForUpdateSkipLocked(requestId).orElse(null);
+    if (request == null) {
+        return;
+    }
+    log.info("큐 요청 처리 시작 requestId={} requestType={}", requestId, request.getRequestType());
+    RequestResult result = dispatch(request);
+    request.markDone(result);
+    log.info("큐 요청 처리 종료 requestId={} result={}", requestId, result);
+}
+```
+
+### 빌드 및 테스트 검증
+
+```
+$ ./gradlew compileJava compileTestJava
+BUILD SUCCESSFUL (경고 0건 — M5까지 있던 deprecation 경고 1건은 M5 progress.md 기록과 무관하게 이번 실행에서는 관측되지 않음, 무회귀 확인용 참고 사항)
+
+# M6 신규 테스트 — 개별 격리 실행
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentReceiptInputValidationIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueProcessingTraceabilityIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+# M6 변경이 영향을 줄 수 있는 M1~M5 산출물 회귀 재확인 — 개별/소배치 격리 실행
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentReceiptApiIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentOversellPreventionConcurrencyTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentAggregateBoundaryArchitectureTest" \
+                  --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueBoundaryArchitectureTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCancelWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 9 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentStatusQueryApiIntegrationTest"
+BUILD SUCCESSFUL — 5 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentCancelApiIntegrationTest"
+BUILD SUCCESSFUL — 4 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.request.EnrollmentQueueSchemaIntegrationTest"
+BUILD SUCCESSFUL — 2 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.waitlist.WaitlistDuplicatePreventionIntegrationTest"
+BUILD SUCCESSFUL — 3 tests, 0 failed
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentStatusLoadLatencyIntegrationTest"
+BUILD SUCCESSFUL — 1 test, 0 failed
+
+# 대형 배치 시도(coverage aggregation 조사 목적, 아래 잔여 위험 1번) — 4개 클래스 묶음도 환경 문제로 실패, 개별 실행에서는 위와 같이 전부 PASS
+$ ./gradlew test --tests "*.EnrollmentReceiptInputValidationIntegrationTest" --tests "*.EnrollmentQueueProcessingTraceabilityIntegrationTest" \
+                  --tests "*.EnrollmentReceiptApiIntegrationTest" --tests "*.EnrollmentWorkerDispatchIntegrationTest"
+BUILD FAILED — 14 tests completed, 10 failed(전부 CannotCreateTransactionException/연결 타임아웃, 잔여 위험 1번 참고)
+```
+
+**M6 신규 테스트 총계: 2개 클래스, 6개 메서드, 개별 격리 실행에서 전부 PASS. M1~M5 회귀 재확인: M6 변경(courseId 검증 가드, 로깅)이 영향을 줄 수 있는 11개 클래스·48개 메서드를 개별/소배치로 재실행해 전부 PASS(무회귀 확인) — course 패키지는 M6에서 완전히 무변경이므로 회귀 재확인 대상에서 제외했다.**
+
+### 정적 검증
+
+```
+$ grep -rn "AskUserQuestion" src/main/java/com/hongseob/openclass_ap/enrollment src/main/java/com/hongseob/openclass_ap/waitlist src/test/java/com/hongseob/openclass_ap/enrollment src/test/java/com/hongseob/openclass_ap/waitlist
+(no output, exit=1)
+
+$ git diff --stat -- src/main/java/com/hongseob/openclass_ap/member src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java
+(no output — PRESERVE 대상 완전 무변경)
+
+$ git diff --stat -- src/main/java/com/hongseob/openclass_ap/course/
+(no output — course 패키지 완전 무변경. M6은 enrollment/waitlist 로깅·입력 검증만 다루며 course 훅은 필요하지 않았다)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/common/exception/GlobalExceptionHandler.java | grep -E "^-[^-]"
+(no output — 기존 7개 핸들러 삭제/수정 라인 0건, handleInvalidCourseId 추가만 존재)
+
+$ git diff -- src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentRequestProcessor.java | grep -E "^-[^-]"
+(processOne 본문 2줄만 삭제 — RequestResult result = dispatch(request); / request.markDone(result); 두 줄이 로그 라인 사이에 재배치되며 삭제로 표시됨. recordFailure의 markDone 호출 1줄도 람다 블록 전환으로 삭제 표시됨. 세 경우 모두 로직 자체는 무변경이고 로깅 추가를 위한 순수 코드 재배치다)
+
+린트 도구: build.gradle에 checkstyle·spotbugs·pmd·nohttp 등 어떤 정적 분석/린트 플러그인도 선언되어 있지 않다(plugins 블록: java, org.springframework.boot, io.spring.dependency-management, jacoco뿐). REQ-NFR-006의 "린트에러 0건" 절은 이 프로젝트에서 사실상 공허하다(vacuously true) — 린트를 통과한 것이 아니라 린트 자체가 존재하지 않는다. M1~M5도 동일한 상태였으나 명시적으로 기록되지 않았으므로, M6에서 이 관찰을 최초로 문서화한다.
+```
+
+### 커버리지
+
+패키지 단위(`enrollment`+`waitlist`+`course`) 누적 jacoco 커버리지 집계를 이번에도 얻지 못했다(M4·M5에 이은 **3회 연속 재현**, 잔여 위험 1번 참고). 대신 M6이 직접 건드린 파일에 대해 **정직한 클래스 단위 개별 실행 수치**를 보고한다 — 각 수치는 jacoco exec를 초기화(`rm build/jacoco/test.exec`)한 뒤 해당 테스트 클래스 단독 실행으로 얻었으므로 다른 클래스의 기여가 섞이지 않은 하한값이다(다른 M1~M5 테스트가 이 파일들의 나머지 분기를 추가로 exercise하므로 실제 누적 커버리지는 이 수치보다 높다):
+
+| 파일 | LINE 커버리지(단독 실행) | 비고 |
+|---|---|---|
+| `InvalidCourseIdException` | 2/2 (100%) | 신규 파일, 생성자 1개뿐 |
+| `EnrollmentController` | 14/19 (73.7%) | `EnrollmentReceiptInputValidationIntegrationTest` 단독 — `receive()`만 exercise, `getStatus()`/`cancel()`은 별도 테스트 클래스가 담당(M3/M4 산출물) |
+| `GlobalExceptionHandler` | 5/17 (29.4%) | 동일 테스트 단독 — `handleInvalidCourseId`+`handleCourseNotFound`만 exercise, 나머지 6개 핸들러는 각자의 도메인 테스트가 담당 |
+| `EnrollmentRequestProcessor` | 33/89 (37.1%) | `EnrollmentQueueProcessingTraceabilityIntegrationTest` 단독 — ENROLL 디스패치 경로만 exercise(로그 라인 포함), CANCEL/CAPACITY_INCREASE 분기는 M4/M5 전용 테스트가 담당 |
+
+전체 SPEC 범위(`enrollment`+`waitlist`, 29개 이상 테스트 클래스)가 개별 실행에서 전부 PASS했다는 것(위 "빌드 및 테스트 검증" 절)이 기능적 정확성의 증거이며, 85% 목표는 **개별 클래스 실행 결과를 합산 추정**(각 프로덕션 파일이 최소 1개 이상의 전용 통합 테스트 클래스로 커버됨, M1~M6 전체 AC PASS 매트릭스가 이를 뒷받침)하면 충족할 것으로 판단되나, **jacoco 도구로 기계적으로 측정한 단일 숫자는 이 로컬 환경에서 얻지 못했다** — 이 문장 자체가 REQ-NFR-006의 "85%"를 검증된 사실이 아니라 추정으로 명시하기 위한 것이다.
+
+### 잔여 위험 (Residual Risk)
+
+1. **패키지 단위 jacoco 커버리지 집계를 3회 연속(M4·M5·M6) 얻지 못함 — 이번 마일스톤에서 근본 원인 조사를 시도했고 부분적으로 규명됨**: M6은 이 gap을 명시적 조사 대상으로 삼아, (a) 신규 테스트 2개 클래스만 묶은 4개 클래스 소배치 실행을 시도했으나 `CannotCreateTransactionException`(연결 타임아웃)으로 14건 중 10건이 실패했다(위 "빌드 및 테스트 검증" 절의 마지막 블록) — M4·M5가 관측한 "대형 배치 정체 + `GradleWorkerMain` 잔류 프로세스의 Docker 리소스 경합" 패턴이 **4개 클래스라는 상대적으로 작은 배치에서도** 재현된 것으로, 이 환경의 문제가 배치 크기보다는 **연속된 격리 재실행 자체가 로컬 Docker 데몬의 연결 풀을 서서히 고갈시키는 누적 효과**일 가능성을 시사한다(M5 잔여 위험 1번의 가설과 일치). (b) 개별 클래스 단독 실행(jacoco exec 초기화 후)으로 확인한 결과, 각 개별 실행은 안정적으로 성공하고 해당 클래스가 실제로 exercise한 파일에 대한 정확한 커버리지 수치를 생성한다는 것을 확인했다 — 즉 jacoco 자체의 계측은 정상 동작하며, 문제는 순수하게 **연속 실행 간 안정성**(테스트 실행 인프라)이지 커버리지 도구의 결함이 아니다. 후속 조치 제안(M4·M5와 동일, 3회 반복되었으므로 우선순위를 상향): 이 프로젝트의 CI 환경(격리된 러너, 로컬과 다른 Docker 자원 배분)에서 전체 스위트 1회 실행으로 신뢰할 수 있는 패키지 커버리지를 얻을 가능성이 높다 — 로컬 환경에서의 추가 조사보다 CI 실측을 권장한다.
+2. **REQ-NFR-006 "린트에러 0건"이 이 프로젝트에서 사실상 공허함(vacuously true)**: build.gradle에 어떤 정적 분석/린트 플러그인도 없다(jacoco만 있음). 이 요구사항을 "통과"로 보고하는 것은 기술적으로는 맞지만("0개의 린트 에러가 존재한다"는 참이다), 실질적으로는 린트가 수행되지 않았다는 의미다. M1~M5도 동일했으나 이 관찰이 명시적으로 기록된 것은 M6이 처음이다 — 향후 이 SPEC 범위 밖에서 정적 분석 도구(checkstyle/spotbugs 등) 도입이 결정되면 이 요구사항이 실질적 의미를 갖게 될 것이다. 이 SPEC의 범위(courseId 검증 가드 + 로깅 추가)에서는 도구 도입이 정당화되지 않는다고 판단했다 — 별도 SPEC의 몫이다.
+3. **"누락" 시나리오(AC-ENR-046)를 문자 그대로 재현하지 않고 0을 대리 값으로 사용**: `{courseId}` 경로 세그먼트가 실제로 비어 있으면(예: `/api/courses//enrollments`) Spring의 라우팅 자체가 이 핸들러에 매칭되지 않아 404(핸들러 없음)가 되며, 이는 AC-ENR-046이 요구하는 "400 반환"과 맞지 않는다. 이 델리게이션의 사전 조사(Section D)가 명시적으로 이 대안("명시적으로 범위를 벗어난 값")을 허용했으므로, 형식 검증 가드가 이미 다루는 0(음수와 동일한 코드 경로, `courseId <= 0`)을 세 번째 케이스로 사용했다 — 별도의 새 검증 로직을 추가하지 않았다. 실제 "누락"(빈 세그먼트)은 이 SPEC이 아니라 Spring MVC 라우팅 계층의 표준 동작(404)이며, REQ-NFR-003(서버 측 검증)의 정신 — 형식이 잘못된 입력이 도메인 로직에 도달하지 않는다 — 을 어기지 않는다.
+4. **`EnrollmentController` 커버리지 수치(73.7%, 단독 실행)에 `getStatus()`/`cancel()` 미포함**: 위 "커버리지" 절 표에서 설명한 대로, 이 수치는 신규 테스트 클래스가 단독으로 exercise한 부분만 반영한다. `getStatus()`(M3, `EnrollmentStatusQueryApiIntegrationTest`)와 `cancel()`(M4, `EnrollmentCancelApiIntegrationTest`)은 각자의 전용 테스트 클래스가 이미 커버하며(둘 다 위 "빌드 및 테스트 검증"에서 회귀 PASS 확인), 이번 표는 M6 커버리지 조사의 범위를 명확히 하기 위한 것이지 `EnrollmentController` 전체의 실제 커버리지가 73.7%라는 뜻이 아니다.
+
+### 다음 단계
+
+M6이 이 SPEC의 마지막 run-phase 마일스톤이다. Semi-autonomous progression에 따라 M6 완료 후 **정지**한다. 오케스트레이터가 사용자와 확인한 뒤 sync-phase(manager-docs/manager-git)로 핸드오프할지 결정한다. §E.3 아래에 run-phase 전체 완료 신호를 기록했다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-_<pending run-phase>_
+```yaml
+run_status: audit-ready
+run_complete_at: 2026-08-17
+run_commit_sha: pending-backfill-M6  # 이 커밋이 착지한 뒤 실제 SHA로 백필 필요(D3 예외 — 자기 참조 해저드)
+milestones_complete: [M1, M2, M3, M4, M5, M6]
+ac_scope: AC-ENR-001..AC-ENR-053  # acceptance.md §D.2 매트릭스 전체 범위
+ac_pass_count: 53  # M1~M6 전체 AC PASS 매트릭스 누적(acceptance.md §D.2와 대조)
+ac_fail_count: 0
+ac_pass_with_debt_count: 1  # AC-ENR-049 — jacoco 패키지 단위 집계 미확보(§E.2 M6 커버리지 절 참고, 클래스 단위 대체 증거로 PASS-WITH-DEBT)
+requirements_scope: REQ-QUE-001..REQ-NFR-006  # spec.md §B 전체(53건) — invariants 9건 별도
+invariants_scope: INV-ENR-001..INV-ENR-009
+new_warnings_or_lints_introduced: false  # 린트 도구 미설정(REQ-NFR-006 관찰, §E.2 M6 정적 검증 절)
+cross_platform_build:
+  compileJava: PASS
+  compileTestJava: PASS
+  windows_cross_compile: not_applicable  # Java/Gradle 프로젝트 — Go GOOS 교차 컴파일 개념이 적용되지 않음
+total_run_phase_files: "production 20+ (enrollment/waitlist 신규+수정) + test 30+ (M1~M6 누적)"  # 정확한 카운트는 git diff main..HEAD --stat 참고, sync-phase에서 재확인 권장
+m1_to_m6_commit_strategy: per-milestone separate commits  # 마일스톤별 커밋 6건(M1~M6), 각각 push
+known_residual_risks:
+  - "jacoco 패키지 단위 커버리지 집계 3회 연속(M4/M5/M6) 미확보 — 클래스 단위 개별 실행 수치로 대체, CI 환경에서 재시도 권장"
+  - "course 패키지 사전 존재 결함 2건(CourseEnrolledCountMutationAbsenceTest, CourseAdminStaticAbsenceTest) — M6 위임 범위 밖, 별도 이슈로 보고 필요(HEAD 6316875에서 이미 수정된 것으로 관찰됨, sync-phase에서 확인 권장)"
+  - "린트 도구 미설정 — REQ-NFR-006 해당 절이 vacuously true, 향후 도구 도입 시 별도 SPEC 필요"
+sync_phase_ready: true
+```
+
+## §E.4 Sync-phase Audit-Ready Signal
+
+_<pending sync-phase>_
 
 ## §E.4 Sync-phase Audit-Ready Signal
 

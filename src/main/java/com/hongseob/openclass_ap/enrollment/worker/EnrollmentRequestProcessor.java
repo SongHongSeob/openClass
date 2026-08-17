@@ -14,6 +14,8 @@ import com.hongseob.openclass_ap.waitlist.WaitlistEntry;
 import com.hongseob.openclass_ap.waitlist.WaitlistEntryRepository;
 import com.hongseob.openclass_ap.waitlist.WaitlistStatus;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +48,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class EnrollmentRequestProcessor {
+
+    private static final Logger log = LoggerFactory.getLogger(EnrollmentRequestProcessor.class);
 
     private final EnrollmentRequestRepository requestRepository;
     private final EnrollmentRepository enrollmentRepository;
@@ -91,8 +95,11 @@ public class EnrollmentRequestProcessor {
         if (request == null) {
             return;
         }
+        // @MX:NOTE: [AUTO] 요청 처리 시작·종료·결과를 요청 식별자와 함께 기록한다(REQ-NFR-004, AC-ENR-047). 순수 관찰 목적 로깅이며 반환값·트랜잭션 경계·제어 흐름은 변경하지 않는다.
+        log.info("큐 요청 처리 시작 requestId={} requestType={}", requestId, request.getRequestType());
         RequestResult result = dispatch(request);
         request.markDone(result);
+        log.info("큐 요청 처리 종료 requestId={} result={}", requestId, result);
     }
 
     /**
@@ -109,7 +116,10 @@ public class EnrollmentRequestProcessor {
     public void recordFailure(Long requestId) {
         requestRepository.findById(requestId)
                 .filter(request -> request.getState() == RequestState.PENDING)
-                .ifPresent(request -> request.markDone(RequestResult.FAILED));
+                .ifPresent(request -> {
+                    request.markDone(RequestResult.FAILED);
+                    log.info("큐 요청 처리 종료 requestId={} result={}", requestId, RequestResult.FAILED);
+                });
     }
 
     private RequestResult dispatch(EnrollmentRequest request) {

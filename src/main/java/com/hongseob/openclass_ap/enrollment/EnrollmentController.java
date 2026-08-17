@@ -1,5 +1,6 @@
 package com.hongseob.openclass_ap.enrollment;
 
+import com.hongseob.openclass_ap.common.exception.InvalidCourseIdException;
 import com.hongseob.openclass_ap.enrollment.dto.EnrollmentReceiptResponse;
 import com.hongseob.openclass_ap.enrollment.dto.EnrollmentStatusResponse;
 import com.hongseob.openclass_ap.enrollment.query.EnrollmentStatusQueryService;
@@ -40,9 +41,22 @@ public class EnrollmentController {
         this.memberRepository = memberRepository;
     }
 
+    /**
+     * courseId 형식 검증(M6, REQ-NFR-003, AC-ENR-046)을 DB 조회보다 먼저
+     * 수행한다 — 0 이하는 형식 오류로 간주해 400을 반환하고 큐 행을 적재하지
+     * 않는다. 숫자가 아닌 값은 여기 도달하기 전에 Spring의 기본
+     * {@code MethodArgumentTypeMismatchException} 처리가 이미 400으로
+     * 거부한다. 존재하지 않는(하지만 형식은 유효한) 강좌 식별자는 이 검증을
+     * 통과한 뒤 {@link EnrollmentReceiptService}가 여전히 404({@link
+     * com.hongseob.openclass_ap.common.exception.CourseNotFoundException})로
+     * 거부한다 — 두 응답의 경계는 겹치지 않는다.
+     */
     @PostMapping("/api/courses/{courseId}/enrollments")
     public ResponseEntity<EnrollmentReceiptResponse> receive(
             @PathVariable Long courseId, Authentication authentication) {
+        if (courseId <= 0) {
+            throw new InvalidCourseIdException(courseId);
+        }
         Long memberId = resolveMemberId(authentication);
         Long requestId = receiptService.receiveEnrollment(memberId, courseId);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new EnrollmentReceiptResponse(requestId));

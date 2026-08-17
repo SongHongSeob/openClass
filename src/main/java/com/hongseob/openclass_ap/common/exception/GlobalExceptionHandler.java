@@ -83,4 +83,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponse.of("WAITLIST_ENTRY_NOT_FOUND", ex.getMessage()));
     }
+
+    /**
+     * 형식적으로 유효하지 않은 강좌 식별자(0 이하)로 접수를 요청하면 DB
+     * 조회 이전에 400으로 거부한다(M6, REQ-NFR-003, AC-ENR-046). 존재하지
+     * 않는 강좌(404, {@link CourseNotFoundException})와 구분된다.
+     */
+    @ExceptionHandler(InvalidCourseIdException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCourseId(InvalidCourseIdException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of("INVALID_COURSE_ID", ex.getMessage()));
+    }
 }
