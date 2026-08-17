@@ -1504,3 +1504,29 @@ known_residual_risks_carried_forward:
   - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4/M5/M6/M7) 미확보 — §E.2 M7 잔여 위험 1번, §E.3 known_residual_risks 참고. 코드 결함 아님(로컬 Docker 자원 고갈, M6에서 근본 원인 규명 완료)"
 sync_commit_sha: c80087e66ff940ca7a932f1780fc79a8a4586447  # backfilled per D3 예외
 ```
+
+### §E.4 addendum — v0.3.1/v0.3.2 M8 제자리 개정 sync-phase 마무리 (2026-08-17)
+
+> 위 §E.4 본문 및 M7 addendum은 각각 M1~M6 / M7 sync 종결 당시의 기록으로 **정확하며 수정 대상이 아니다**. 이 addendum은 M8(v0.3.1/v0.3.2 제자리 개정 — 큐 처리 실패 진단 로깅 Step A + 근본 원인 조사·판정 Step B) sync-phase 종결만을 별도로 기록한다. sync-auditor 재실행 없음 — M8은 Step A(로깅 1건 추가)만 프로덕션 코드를 변경했고 Step B는 코드 변경이 없으므로(§E.2 M8 Step B 기록 참고) 경량 종결(manager-docs 단독)로 처리했다.
+
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-08-17
+sync_files_touched:
+  - CHANGELOG.md     # SPEC-ENROLLMENT-001 절에 M8 Fixed(진단 로깅) + Verification(Step B 판정) 항목 추가, Known Limitations 1행 추가
+  - .moai/specs/SPEC-ENROLLMENT-001/spec.md       # frontmatter status 전이만 (body 무변경)
+  - .moai/specs/SPEC-ENROLLMENT-001/progress.md   # 이 addendum
+frontmatter_transitions:
+  - file: .moai/specs/SPEC-ENROLLMENT-001/spec.md
+    status: "in-progress -> completed"
+    updated: "2026-08-17 (unchanged date, same-day amendment close)"
+readme_change: none  # README.md에 워커 실패 처리 관련 고증이 필요한 기존 서술이 없어 변경 생략
+ac_scope: AC-ENR-059..AC-ENR-061  # M8 신설 3건
+ac_pass_count: 3
+ac_fail_count: 0
+m8_scope_closed: "AC-ENR-059~061 (3건) — Step A 진단 로깅 + Step B 근본 원인 (b)외부/인프라 요인 판정, 코드 변경 0건(Step B)"
+known_residual_risks_carried_forward:
+  - "M8 진단 로깅이 실제로 잡아낸 프로덕션 실패의 근본 원인은 이 로컬 개발 DB에 국한된 인프라 상태(이질적 course_term 스키마 객체) — 다른 환경에서 재현되지 않을 수 있음"
+  - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4~M7) 미확보 — §E.3 known_residual_risks 참고, M8은 커버리지 영향 없음(Step A 1개 catch 블록 로깅 추가만)"
+sync_commit_sha: pending-backfill-M8  # 이 커밋 자신의 SHA는 자기 참조 해저드로 이 커밋 안에서 알 수 없음 — 후속 커밋에서 백필
+```
