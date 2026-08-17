@@ -137,6 +137,23 @@ Implementation Kickoff Approval → run (M8). **Step A(로깅) → Step B(조사
 
 **Implementation Kickoff Approval confirmation**: obtained via AskUserQuestion — **마일스톤별 확인(semi-autonomous progression)** 선택. 동시성 버그의 위험도가 높아 각 마일스톤 완료 시 사용자 확인을 거친 뒤 다음 단계로 진행한다.
 
+### M8 (v0.3.2 제자리 개정) — Phase 4 Mode Selection
+
+**Input parameters**:
+- tier: L (spec.md frontmatter 유지)
+- scope (file count): `EnrollmentQueueWorker.java` 1개 + `enrollment`/`waitlist` catch 블록 전수 확인(최대 소수 개), 테스트 1-2개 (기존 `ControllableFailureInjector` + `ListAppender` 하네스 재사용)
+- domain count: 1 (기존 Java/Spring Boot 백엔드 도메인, 신규 파일 없음)
+- file language mix: 100% Java
+- concurrency benefit: LOW (단일 catch 블록 로깅 추가 + 순차적 Step A → Step B 의존, 코딩 작업)
+
+**Decision**: sub-agent (Mode 5)
+
+**Justification**: M1~M6과 동일한 근거 — 단일 도메인 소규모 코딩 작업이며, plan.md §F M8이 명시적으로 Step B를 Step A보다 먼저 시도하는 것을 금지(§G 안티패턴)하므로 두 단계가 순차 의존적이다. 병렬화 대상이 없다.
+
+**Route**: Route B (PR 기반, Tier L) — 기존 `feat/SPEC-ENROLLMENT-001` 브랜치는 PR #1 병합으로 이미 소진되어(main 대비 0 unmerged commit) 재사용 부적절 → main HEAD(73dc983)에서 **새로 재생성**.
+
+**Implementation Kickoff Approval confirmation**: obtained via AskUserQuestion — **지금 시작** 선택 (plan-auditor 2차 델타 재감사 PASS 0.961 확인 직후).
+
 ## §E.2 Run-phase Evidence
 
 ### M1 — 스키마 및 접수 순서 보장 (완료)
