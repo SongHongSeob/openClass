@@ -1322,6 +1322,97 @@ $ grep -rn 'AskUserQuestion\|mcp__askuser' src/main/java/com/hongseob/openclass_
 
 Step A는 완료되었다. Step B(실제 실패 재현·판정·progress.md 기록)는 plan.md §F M8이 정한 순서(Step A 완료 후에만 착수)에 따라 별도 델타로 수행하며, 이 M8 Step A delegation의 범위에는 포함하지 않았다 — 오케스트레이터의 명시 지시("Step B는 시작하지 않는다")를 따랐다.
 
+### M8 Step B — 근본 원인 조사·판정 (AC-ENR-061)
+
+**재현 절차 (실제 흐름, 테스트 주입 아님)**
+
+Step A가 반영된 상태로 백엔드를 로컬에서 새로 기동(`ADMIN_EMAIL`/`ADMIN_PASSWORD` 환경변수 주입 후 `./gradlew bootRun`, `spring.profiles.active=local` 기본값 → `application-local.properties`가 가리키는 원격 Supabase `postgres` 데이터베이스에 실제로 연결)한 뒤, 실제 HTTP 요청으로 접수했다:
+
+1. `POST /api/auth/signup` → 회원 가입(`m8-diag-member@example.com`)
+2. `POST /api/auth/login` → 회원 JWT 발급
+3. `POST /api/admin/courses` (관리자 JWT) → 강좌 생성(`id=7`)
+4. `POST /api/courses/7/enrollments` (회원 JWT) → `{"requestId":8}`, HTTP 202
+5. 워커(폴링 200ms)가 자동 처리 → `GET /api/enrollment-requests/8` → `{"requestId":8,"status":"FAILED",...}`, **1회 시도 만에 재현**(spec.md §A.7이 기록한 재현율 100%와 일치)
+
+이 흐름은 `EnrollmentFailureInjector`/`ControllableFailureInjector` 등 테스트 전용 주입 훅을 전혀 거치지 않는다 — 실제 컨트롤러 → 실제 큐 적재 → 실제 워커 → 실제 DB write 경로다.
+
+**1. 실제로 관측된 예외의 타입 전체 이름**
+
+`org.springframework.dao.DataIntegrityViolationException` (원인 체인: `org.hibernate.exception.ConstraintViolationException` ← `org.postgresql.util.PSQLException`)
+
+**2. 예외 메시지 원문**
+
+```
+could not execute statement [ERROR: null value in column "course_term_id" of relation "enrollment" violates not-null constraint
+  Detail: Failing row contains (7, null, 11, ENROLLED, null, 2026-08-17 14:06:46.57037+00, null, null, 7, 2026-08-17 23:06:46.973213).] [insert into enrollment (cancelled_at,course_id,enrolled_at,member_id,status) values (?,?,?,?,?)]; SQL [insert into enrollment (cancelled_at,course_id,enrolled_at,member_id,status) values (?,?,?,?,?)]; constraint [course_term_id]
+```
+
+애플리케이션 로그의 실제 WARN 이벤트 원문(Step A 로깅이 기록한 것):
+
+```
+2026-08-17T23:06:47.139+09:00  WARN 16240 --- [openclass-ap] [   scheduling-1] c.h.o.e.worker.EnrollmentQueueWorker     : 큐 요청 처리 실패 requestId=8
+
+org.springframework.dao.DataIntegrityViolationException: could not execute statement [ERROR: null value in column "course_term_id" of relation "enrollment" violates not-null constraint ...] ...
+```
+
+**3. 스택 트레이스 상단 프레임 (최소 1개)**
+
+```
+at org.springframework.orm.jpa.hibernate.HibernateExceptionTranslator.convertHibernateAccessException(HibernateExceptionTranslator.java:169)
+...
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentRequestProcessor.dispatchEnroll(EnrollmentRequestProcessor.java:154)
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentRequestProcessor.dispatch(EnrollmentRequestProcessor.java:127)
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentRequestProcessor.processOne(EnrollmentRequestProcessor.java:100)
+...
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentQueueWorker.drainQueue(EnrollmentQueueWorker.java:70)
+```
+
+주입 실패 배제 조건(D2) 대조: 상단 프레임 어디에도 `EnrollmentFailureInjector`/`ControllableFailureInjector` 클래스가 없다 — 실제 실행 경로의 프레임만 존재한다. 배제 조건에 해당하지 않는다.
+
+**4. (a)/(b) 판정: (b) — 이 코드베이스 밖의 외부·인프라 요인**
+
+**5. 판정 근거**
+
+plan.md §F M8 Step B의 규범적 정의(유래(origin) 기준, 소속 패키지는 보조 신호일 뿐)에 따라 판정한 근거는 다음과 같다.
+
+- **애플리케이션 코드 프레임만으로는 판정이 끝나지 않는다** — 위 스택의 애플리케이션 프레임(`EnrollmentRequestProcessor.dispatchEnroll`)은 이 코드베이스의 클래스이지만, 그 메서드가 `enrollmentRepository.save(...)`로 생성하는 INSERT 문(`insert into enrollment (cancelled_at,course_id,enrolled_at,member_id,status) values (...)`)은 `Enrollment` 엔티티(`src/main/java/.../enrollment/Enrollment.java`)의 필드 6개(`id, member_id, course_id, status, enrolled_at, cancelled_at`)를 정확히 반영한 것이며, 이 코드베이스의 설계(design.md §1, `schema.sql`)와 완전히 일치한다 — **이 메서드 자체에는 결함이 없다.**
+- **실패의 원인은 이 코드베이스가 생성하지도, 알지도 못하는 DB 오브젝트다.** `docker run --rm postgres:16-alpine psql "<local dev Supabase 접속 URL>" -c "\d enrollment"`로 로컬 개발용 원격 Supabase `postgres` 데이터베이스의 `enrollment` 테이블 실제 물리 스키마를 직접 조회한 결과, 이 코드베이스의 6개 컬럼 외에 **4개의 이질적 컬럼**이 이미 존재했다: `course_term_id bigint NOT NULL`(→ `course_term(id)` FK), `waiting_no`, `applied_at`, `canceled_at`(단일 L — 이 코드베이스의 `cancelled_at`은 별도로 존재). `status` 컬럼에는 `CHECK (status IN ('APPLIED','WAITING','CANCELED'))` 제약까지 걸려 있다 — 이 코드베이스의 `EnrollmentStatus` enum(`ENROLLED`/`CANCELLED`)과 값 자체가 다르다.
+- **이 물리 스키마는 이 코드베이스의 어떤 산출물과도 대응하지 않는다.** `grep -rn "course_term" --include=*.java --include=*.sql .` 전수 검색 결과, 프로덕션 소스·`schema.sql`·`Enrollment`/`Course` 엔티티 어디에도 `course_term`/`courseTermId` 참조가 **0건**이다. `git log --all --oneline | grep -i "course_term"` 결과도 **0건**이다 — 이 컬럼·FK·테이블은 이 코드베이스의 git 이력 어느 시점에도 존재한 적이 없다.
+- **`course_term`·`enrollment_history` 테이블 자체가 이 코드베이스 밖의 것이다.** `\dt public.*` 조회 결과 `course_term`, `enrollment_history` 두 테이블이 이 DB에 존재하지만, 두 테이블 모두 이 코드베이스의 어떤 엔티티·리포지토리·`schema.sql`에도 대응하지 않는다. `course` 테이블에도 이 코드베이스가 만들지 않은 `ck_course_status`/`course_status_check` 중복 CHECK 제약이 이미 있었다(우연히 허용값이 `OPEN`/`CLOSED`로 이 코드베이스와 같아 지금까지 충돌이 드러나지 않았을 뿐이다).
+- **`ddl-auto=update`의 가산(加算)적 동작이 충돌을 기동 시점에 숨긴다.** `spring.jpa.hibernate.ddl-auto=update`는 기존 테이블이 있으면 이 코드베이스 엔티티가 요구하는 컬럼(예: `cancelled_at`)만 **추가**할 뿐 기존의 이질적 컬럼·제약(`course_term_id NOT NULL` 등)을 검증·제거하지 않는다 — 그래서 애플리케이션은 정상적으로 기동되고, 실패는 오직 실제 INSERT 시점에만 나타난다.
+- **이 코드베이스 자체의 프로비저닝 경로로는 이 실패가 재현되지 않는다.** M1~M7 통합 테스트는 전부 Testcontainers(매 실행마다 새로 만든 PostgreSQL 컨테이너에 이 코드베이스의 `schema.sql` + 엔티티만으로 스키마를 생성)를 쓰며, `status=ENROLLED`로 `Enrollment`를 삽입하는 테스트가 M2·M6 등 다수 존재하고 전부 통과해왔다(§E.2 M2/M6 절 참고) — `course_term_id` 제약이 전혀 없기 때문이다. 즉 **이 코드베이스가 소유·관리하는 스키마 정의(엔티티 + `schema.sql`)만으로 DB를 구성하면 이 실패는 존재하지 않는다.** 실패는 오직 이 특정 로컬 개발용 Supabase 프로젝트의 **이미 채워져 있던 이질적 상태**에서만 나타난다 — 이는 정확히 plan.md §F M8이 예시한 "이 코드베이스의 로직에서 유래하지 않은" 조건이며, spec.md §A.7 개정 사유가 후보로 지목한 "(b) 원격 Supabase 세션 풀러를 쓰는 로컬 개발 환경 고유의 ... 요인"과 같은 범주(이 로컬 개발 환경에 특유한 외부 인프라 상태)에 해당한다.
+- 요약: 스택 최상단의 애플리케이션 프레임이 이 코드베이스 클래스라는 사실만으로 기계적으로 (a)를 단정하지 않았다 — 그 프레임이 호출한 로직 자체가 이 코드베이스의 완결된 설계와 정확히 일치함을 확인했고(코드에는 결함이 없음), 실패의 진짜 원인은 이 코드베이스가 생성·인지하지도 못하는 DB 오브젝트(다른 스키마 세대의 `course_term` 계열 테이블·제약)임을 직접 스키마 조회와 전수 grep + git 이력 조회로 실증했다. 이는 "패키지 소속만으로 (b)를 단정하지 않는다"는 D3 원칙의 대칭 적용이다 — 여기서는 반대로 "애플리케이션 프레임 소속만으로 (a)를 단정하지 않는다."
+
+**추가 코드 변경 없음 (plan.md §F M8 Step B "분기 (b)" 종결 조건)**
+
+이 판정에 따라 **코드 변경을 하지 않았다.** `git status --porcelain` 확인 결과 이 Step B 델타에서 프로덕션·테스트 소스 변경은 0건이다(아래 §E.3 이전 회귀·빌드 검증 참고). plan.md §D "실패 진단의 확장"이 금지하는 대로 외부 시스템(이 경우: 로컬 개발용 Supabase 프로젝트의 기존 이질적 스키마)을 "고치려" 재시도·백오프·풀 설정 변경·우회 로직을 도입하지 않았다. 이 발견에 따른 조치(예: 로컬 개발용 Supabase 프로젝트를 이 코드베이스 전용으로 새로 프로비저닝하거나, `course_term` 계열 테이블을 정리하는 것)가 필요하다고 판단되면 **별도 SPEC**의 대상이다 — 이는 애플리케이션 코드가 아니라 로컬 개발 인프라(DB 프로비저닝) 범위이기 때문이다.
+
+**빌드 검증 (Step B — 코드 변경 없음 확인)**
+
+```
+$ ./gradlew compileJava -x test   → BUILD SUCCESSFUL, exit 0 (UP-TO-DATE — Step A 이후 소스 변경 없음)
+$ ./gradlew compileTestJava       → BUILD SUCCESSFUL, exit 0 (UP-TO-DATE)
+```
+
+**정적 검증 (Step B)**
+
+```
+$ grep -rn 'AskUserQuestion\|mcp__askuser' src/main/java/com/hongseob/openclass_ap/enrollment/ src/main/java/com/hongseob/openclass_ap/waitlist/
+(출력 없음 — exit 1, 매치 0건)
+```
+
+**AC-ENR-061 PASS/FAIL**
+
+| AC | 상태 | 검증 방법 | 실제 근거 |
+|---|---|---|---|
+| AC-ENR-061 | PASS | 문서 검사(progress.md §E.2 M8 Step B, 위 5개 항목) | 실제 관측된 예외 타입 전체 이름·메시지 원문·상단 스택 프레임·(a)/(b) 판정(=b)·판정 근거가 전부 기록됨. 주입 실패 배제 조건(D2) 대조 결과 상단 프레임에 주입 훅 클래스 없음 — 실제 실행 경로 관측 충족. (b) 판정이므로 "추가 코드 변경 없음"이 요구되며, 위와 같이 실제로 코드 변경 0건임을 `git status --porcelain` + 빌드 UP-TO-DATE로 확인 |
+
+**Step B 완료 조건 재확인(plan.md §F M8)**: AC-ENR-061 PASS — 실제로 관측된 예외 상세(타입 전체 이름·메시지 원문·스택 트레이스 상단 프레임)가 위에 인용되어 있고, (b) 판정과 그 근거가 명시되어 있으며, "추가 코드 변경이 없음"이 기록되어 있다.
+
+**M8 전체 완료 판정 (plan.md §F M8)**: 필수 3건(AC-ENR-059·060·061) 전부 PASS. 분기 (b)이므로 추가 요구사항 없음 — "근본 원인이 수정되지 않았다"는 이유로 미완료 처리하지 않는다(plan.md §F M8 전체 완료 판정 규정). M8은 이것으로 완료된다.
+
+**회귀 검증 (plan.md §F M8 전체 완료 판정 "회귀 조건" — Step B는 코드 변경이 없으므로 Step A가 이미 §E.2 위 절에서 확인한 M2 실패 격리·원자성(`EnrollmentQueueResilienceIntegrationTest`) + M6 추적성(`EnrollmentQueueProcessingTraceabilityIntegrationTest`) 격리 실행 결과가 그대로 유효하다 — Step B에서 재실행할 대상 코드 변경이 없다)**
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
