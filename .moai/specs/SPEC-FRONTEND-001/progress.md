@@ -141,9 +141,24 @@ ID="SPEC-FRONTEND-001"
 
 ### E.1.7 다음 단계
 
-plan-auditor 감사는 3회차까지 수행되었다(FAIL 0.75 → PASS 0.89 → FAIL 0.83). 3회차 지적 M1~M4를 0.2.2에서 전부 반영했다.
+plan-auditor 감사는 4회차까지 수행되었다(FAIL 0.75 → PASS 0.89 → FAIL 0.83 → **PASS 0.91**). 3회차 지적 M1~M4를 0.2.2에서 전부 반영했고, 4회차(`/moai run` Phase 1 Plan Audit Gate 겸용)에서 4건 전부 RESOLVED 확인 + 신규 minor 4건(N1~N4, 전부 사소함 — 감사자 권고: "5차 반복 불필요, 다음에 해당 파일을 건드릴 때 함께 반영") 발견. 보고서: `.moai/reports/plan-audit/SPEC-FRONTEND-001-review-4.md`.
 
-남은 절차는 **델타 범위 재감사**(M1~M4 반영분 한정 — 감사자가 58 REQ / 86 AC 전수 기계 검증의 반복은 불필요하다고 명시) → Implementation Kickoff Approval(휴먼 게이트) → run 단계 진입이다. **`DEP-3` 처리 방침 확정 단계는 소멸했다** — 의존성이 해소되어 결정할 대상이 없다. 남은 절차들은 이 위임의 범위 밖이며 오케스트레이터가 수행한다.
+남은 절차는 Implementation Kickoff Approval(휴먼 게이트) → run 단계 진입이다. **`DEP-3` 처리 방침 확정 단계는 소멸했다** — 의존성이 해소되어 결정할 대상이 없다. 남은 절차들은 이 위임의 범위 밖이며 오케스트레이터가 수행한다.
+
+---
+
+## Phase 1: Plan Audit Gate (run-phase 진입, `/moai run`)
+
+```yaml
+audit_verdict: PASS
+audit_report: .moai/reports/plan-audit/SPEC-FRONTEND-001-review-4.md
+audit_at: 2026-08-17
+auditor_version: plan-auditor (round 4/4 — user-authorized confirming audit beyond nominal 3-cap, per Retry Loop Contract post-iter-3 escalation)
+score: 0.91
+depends_on_preflight: PASS (SPEC-AUTH-001, SPEC-COURSE-001, SPEC-ENROLLMENT-001 all status: completed)
+```
+
+이력: iter1 FAIL 0.75 → iter2 PASS 0.89 → iter3 FAIL 0.83(외인성 회귀 — DEP-3 해소 사실 미반영) → iter4 PASS 0.91(M1~M4 전부 RESOLVED, STOP 신호 해제). Tier L 통과 기준 0.85 충족.
 
 ---
 
@@ -173,3 +188,24 @@ _<pending sync-phase>_
 - 구현 계획: `plan.md`
 - 인수 기준: `acceptance.md`
 - 선행 SPEC: `.moai/specs/SPEC-AUTH-001/`, `.moai/specs/SPEC-COURSE-001/`, `.moai/specs/SPEC-ENROLLMENT-001/`
+
+---
+
+## §G Phase 4 Mode Selection
+
+**입력 파라미터**: tier=L, scope≈59 REQ / 14 엔드포인트 / M1~M7(7개 마일스톤), domain 수≥3(인증·카탈로그·수강신청·관리자), 파일 언어=TypeScript/React(그린필드, `frontend/` 미생성), concurrency benefit=LOW(코딩 중심 작업)
+
+**모드 평가**:
+
+| # | 모드 | 선택 여부 | 근거 |
+|---|---|---|---|
+| 1 | trivial | 미선택 | 자명한 1줄 수정이 아님 |
+| 2 | background | 미선택 | 쓰기 작업(코드 구현) 포함 |
+| 3 | agent-team | 미선택 | RETIRED |
+| 4 | parallel | 미선택 | 코딩 중심 작업 — Anthropic coding-task parallelism caveat |
+| 5 | **sub-agent** | **선택** | 마일스톤별 순차 `manager-develop` 스폰(Full Pipeline 봉투) |
+| 6 | workflow | 미선택 | 코딩/다중도메인 작업 — Mode 6 부적합 |
+
+**결정**: `sub-agent` (Full Pipeline envelope — M1~M7 마일스톤별 순차 manager-develop 위임)
+
+**근거**: SPEC 규모(Tier L, 7개 마일스톤, 3개 이상 도메인)가 Full Pipeline 봉투에 해당하지만, 실제 구현 작업 자체는 코딩 중심이므로 Mode 5(순차 sub-agent)가 정답이다. 각 마일스톤 완료 시 오케스트레이터가 브라우저 실동작 확인 등 검증 배치를 실행한 뒤 다음 마일스톤으로 진행한다.
