@@ -1189,7 +1189,7 @@ M7이 이 v0.3.0 개정의 마지막(그리고 유일한) run-phase 마일스톤
 ```yaml
 run_status: audit-ready
 run_complete_at: 2026-08-17
-run_commit_sha: pending-backfill-m7  # M7 커밋(D3 예외 — 자기 참조 해저드로 인한 사후 백필). M1~M6 종전 값 be0cd73e6341a259bbe7e3031f5067239c0d16fe는 아래 known_residual_risks에 이력으로 보존
+run_commit_sha: 98ca5d3bce2e00fd395366952f341d6e2a14b12f  # M7 커밋(D3 예외 — 자기 참조 해저드로 인한 사후 백필). M1~M6 종전 값 be0cd73e6341a259bbe7e3031f5067239c0d16fe는 그 마일스톤들의 기록으로 유지
 milestones_complete: [M1, M2, M3, M4, M5, M6, M7]
 ac_scope: AC-ENR-001..AC-ENR-058  # v0.3.0 개정 반영 — acceptance.md §D.2 매트릭스 전체 범위(58건)
 ac_pass_count: 58  # M1~M6(53) + M7(AC-ENR-054~058, 5건) 누적. M7 5건 전부 이번 §E.2 기록에서 PASS
