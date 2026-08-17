@@ -1245,6 +1245,83 @@ $ git diff --stat -- src/main/java/.../member src/main/java/.../common/config/Se
 
 M7이 이 v0.3.0 개정의 마지막(그리고 유일한) run-phase 마일스톤이다. spec.md §D.4 완료 정의의 "AC-ENR-001~058이 전부 통과한다" 조건이 이번 기록으로 충족된다 — M1~M6(AC-001~053)은 §E.3의 기존 기록, M7(AC-054~058)은 이번 §E.2 기록이다. §E.3 아래에 갱신된 run-phase 전체 완료 신호를 기록했다. 오케스트레이터가 사용자와 확인한 뒤 sync-phase(manager-docs/manager-git)로 핸드오프할지 결정한다.
 
+### M8 — 큐 처리 실패 진단 (v0.3.1/v0.3.2 제자리 개정) — **Step A만 수행, Step B는 별도 델타**
+
+이 절은 Step A(실패 예외 로깅, 필수·무조건)만 기록한다. Step B(근본 원인 조사·판정)는 plan.md §F M8이 정한 순서대로 Step A 완료 후 별도로 수행하며, 이 delegation의 범위에 포함되지 않는다.
+
+**변경 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `enrollment/worker/EnrollmentQueueWorker.java` (수정) | `drainQueue()`의 `catch (RuntimeException ex)` 블록에서 `recordFailure(id)` 호출 **직전에** `log.warn("큐 요청 처리 실패 requestId={}", id, ex)`로 예외를 기록(§C.9 결정 1·2·3). `requestType` 재조회는 하지 않는다(§C.9 결정 2). 제어 흐름·트랜잭션 경계·반환값은 한 줄도 바꾸지 않았다(`git diff` 확인 — 추가된 것은 로거 필드 선언 + import 2건 + `log.warn` 호출 1줄뿐이다). |
+| `enrollment/EnrollmentQueueResilienceIntegrationTest.java` (수정) | 신규 테스트 메서드 1건 추가 — 기존 `ControllableFailureInjector`(M2) + logback `ListAppender`(M4/M6 확립 패턴, §C.9 결정 5) 재사용. 신규 테스트 인프라 0건(§D "신규 인프라 추가 금지" 충족). |
+
+**전수 catch 블록 검사 결과 (REQ-DIAG-002, AC-ENR-060)**
+
+```
+$ grep -rn "catch (" src/main/java/com/hongseob/openclass_ap/enrollment/ src/main/java/com/hongseob/openclass_ap/waitlist/
+src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java:67:                } catch (RuntimeException ex) {
+```
+
+발견된 catch 블록은 **1건**(위 `drainQueue()` 블록 자체)뿐이며, plan.md §D.2가 예상한 개수("프로덕션 1~2 파일")와 일치한다. 이 1건이 이번 수정으로 예외를 `log.warn` 인자로 전달하도록 고쳤으므로, 검사 시점 기준 `enrollment`/`waitlist` 프로덕션 소스에 예외를 포착한 뒤 무기록 폐기하는 catch 블록은 **0건**이다.
+
+**AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령(격리 실행) | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-059 | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest"` | `build/test-results/test/TEST-...EnrollmentQueueResilienceIntegrationTest.xml` → `tests="3" skipped="0" failures="0" errors="0"` (기존 2건 + 신규 1건) |
+| AC-ENR-060 | PASS | 위 grep 명령(전수 검사) | 무기록 폐기 catch 블록 0건(위 표) |
+
+**AC-ENR-059 실제 관측 로그 (ListAppender 캡처, 신규 테스트 메서드 실행 결과 원문 인용)**
+
+```
+2026-08-17T22:21:47.654+09:00  WARN 10409 --- [openclass-ap] [    Test worker] c.h.o.e.worker.EnrollmentQueueWorker     : 큐 요청 처리 실패 requestId=3
+
+java.lang.IllegalStateException: AC-ENR-016/017 테스트 전용 강제 실패 주입: requestId=3
+	at com.hongseob.openclass_ap.enrollment.worker.fixture.EnrollmentFailureInjectorTestConfig$ControllableFailureInjector.afterEnrollmentPersisted(EnrollmentFailureInjectorTestConfig.java:46) ~[test/:na]
+```
+
+이 로그 이벤트에서 다음 5요소가 전부 확인된다: (1) 수준 `WARN`(`ILoggingEvent.getLevel()` 비교, 테스트가 `Level.WARN` 이상만 필터), (2) `requestId=3` 포함(포맷된 메시지), (3) 예외 타입 `java.lang.IllegalStateException`(`ThrowableProxy.getClassName()`이 `IllegalStateException.class.getName()`과 일치), (4) 예외 메시지에 주입 문자열 포함(`ThrowableProxy.getMessage()`), (5) 스택 트레이스 프레임 1개 이상(`getStackTraceElementProxyArray().length > 0`). 신규 테스트 메서드는 이 5개 단언을 전부 개별로 수행한다.
+
+**AC-ENR-016/017 동작 유지 확인 (AC-ENR-059 "또한" 절)**
+
+같은 테스트 메서드 안에서 확인: 첫 번째·세 번째 요청은 `result=SUCCESS`로 정상 종단, 두 번째 요청(`r2`)은 `state=DONE`·`result=FAILED`, `enrollment` 행 수 2건(m1·m3만), `enrolled_count`도 2 — 로깅 추가가 실패 격리(REQ-WRK-009)·처리 원자성(REQ-WRK-010) 동작을 바꾸지 않았다.
+
+**빌드 검증**
+
+```
+$ ./gradlew compileJava -x test   → BUILD SUCCESSFUL, exit 0
+$ ./gradlew compileTestJava       → BUILD SUCCESSFUL, exit 0
+```
+
+**회귀 검증 (plan.md §F M8 전체 완료 판정 "회귀 조건" — M2 실패 격리·원자성 + M6 추적성)**
+
+```
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest" --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueProcessingTraceabilityIntegrationTest"
+→ BUILD SUCCESSFUL
+→ EnrollmentQueueResilienceIntegrationTest: tests="3" failures="0" errors="0" (AC-ENR-016/017 대응, M2)
+→ EnrollmentQueueProcessingTraceabilityIntegrationTest: tests="1" failures="0" errors="0" (AC-ENR-047 대응, M6)
+```
+
+두 클래스 모두 격리 실행으로 무손상 확인 — plan.md §F M8이 명시한 회귀 대상과 정확히 일치한다.
+
+**정적 검증**
+
+```
+$ grep -rn 'AskUserQuestion\|mcp__askuser' src/main/java/com/hongseob/openclass_ap/enrollment/ src/main/java/com/hongseob/openclass_ap/waitlist/
+(출력 없음 — exit 1, 매치 0건)
+```
+
+**환경 플레이키니스 관측 (코드 결함 아님, project memory와 일치 — M4~M7이 이미 반복 관측한 패턴)**
+
+전체 `./gradlew build`(48개 테스트 클래스 동시 실행)를 별도로 시도했을 때, `EnrollmentCancelWorkerDispatchIntegrationTest`·`EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest`·`EnrollmentClaimExclusivityConcurrencyTest`·`EnrollmentDbConstraintBackstopIntegrationTest`(이번 M8과 무관한 M2~M3 기존 테스트) 10건이 `CannotCreateTransactionException`/`Connection refused`로 실패했다 — 로컬 Docker Testcontainers 연결 자원 고갈로 M4~M7 progress.md가 이미 반복 기록한 것과 동일한 패턴이며, 이번 M8 변경과는 무관하다. 이 실행은 20분 이상 정체되어 중단(`--stop`)했고, 대신 plan.md §F M8이 명시한 정확한 회귀 대상(M2 실패 격리 + M6 추적성) 2개 클래스만 격리 실행하여 위와 같이 PASS를 확인했다. 이 대체는 §D.2(추적성 매트릭스)나 AC 판정 기준을 변경하지 않는다 — 두 회귀 클래스의 격리 실행 결과가 회귀 조건이 요구하는 증거다.
+
+**Step A 완료 조건 재확인(plan.md §F M8)**: AC-ENR-059와 AC-ENR-060이 함께 PASS — 강제 주입한 실패에서 5요소(WARN 이상·requestId·예외 타입·예외 메시지·스택 트레이스)가 모두 확인되었고, 같은 테스트에서 AC-ENR-016/017의 기존 동작(다른 요청 정상 종단·`result='FAILED'` 보존)이 유지됨을 함께 확인했다.
+
+**다음 단계**
+
+Step A는 완료되었다. Step B(실제 실패 재현·판정·progress.md 기록)는 plan.md §F M8이 정한 순서(Step A 완료 후에만 착수)에 따라 별도 델타로 수행하며, 이 M8 Step A delegation의 범위에는 포함하지 않았다 — 오케스트레이터의 명시 지시("Step B는 시작하지 않는다")를 따랐다.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
