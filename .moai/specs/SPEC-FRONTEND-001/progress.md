@@ -248,6 +248,45 @@ mode_selection: sub-agent (§G)
 
 **커밋**: (M2 커밋은 이 progress.md 갱신과 함께 커밋됨 — SHA는 커밋 후 §E.3에서 백필)
 
+### M3 — 강좌 카탈로그
+
+**대상 요구사항**: `REQ-CAT-001`~`006`
+
+**산출물**:
+
+- `src/catalog/catalogModel.ts` — 순수 로직 지점(plan.md §D.1의 "목록 응답 → 화면 모델 변환" 부류): `computePageControls`(REQ-CAT-002, 서버 페이지 메타데이터로부터 이전/다음·빈 목록 유도, 0-인덱스 `currentPage`는 백엔드 `Page.getNumber()`와 동일) / `isEnrollmentBlocked`(REQ-CAT-005, `CLOSED` 판정 — M4가 실제 신청 CTA 배선 시 재사용할 재사용 가능한 조각으로 노출)
+- `src/catalog/catalogModel.test.ts` — TDD RED 먼저 작성(모듈 부재로 실패 확인) 후 GREEN
+- `src/api/endpoints.ts` 확장 — `getCourses(page, size)`(`GET /api/courses`, 세션 불필요) / `getCourseDetail(id)`(`GET /api/courses/{id}`, 세션 불필요) — design.md §A.8 성장 지점, 14개 중 4개 채움
+- `src/catalog/CourseListPage.tsx` — 목록 화면. 진입 시 `getCourses` 호출(REQ-CAT-001), `computePageControls` 기반 이전/다음 버튼(REQ-CAT-002, 자체 분할 없음), 항목별 정원·확정 인원·잔여 정원·모집 상태 표시(REQ-CAT-003), 0건 시 "표시할 강좌가 없습니다" 정상 상태 표시(오류 아님)
+- `src/catalog/CourseDetailPage.tsx` — 상세 화면. 진입 시 `getCourseDetail` 호출(REQ-CAT-004), `CLOSED` 상태면 "마감된 강좌입니다..." 표시(REQ-CAT-005) — 신청 조작 자체는 이 마일스톤에 없으므로(M4가 배선) 노출할 CTA가 없다는 뜻에서 결과적으로 충족. 404 등 오류는 `errors.ts` 단일 정규화 지점의 결과만 표시(REQ-ERR-002, AC-FE-046)
+- `src/catalog/CatalogSection.tsx` — 목록/상세 전환 컨테이너. **라우터를 도입하지 않았다** — 과업 지시 B1에 따라 `package.json` 확인 결과 `react-router`/TanStack Query 미설치(`plan.md` §C.6이 채택을 결정했으나 아직 미도입 상태)를 확인하고, 기존 M2의 콜백 기반 화면 전환 패턴(App.tsx의 `Screen` 지역 상태)을 그대로 확장하는 지역 상태(`useState<CatalogView>`)로 구현. 신규 의존성 0건
+- `src/App.tsx` 수정 — `AuthenticatedView`/`AnonymousView` 양쪽에 `<CatalogSection />` 추가(REQ-CAT-006, 세션 무관 열람)
+
+**AC / 항목 판정 (근거)**:
+
+| AC / 항목 | 판정 | 근거 |
+|---|---|---|
+| REQ-CAT-001 (목록 진입 시 조회) | **PASS** | `CourseListPage.tsx` — `useEffect`가 마운트 및 `page` 변경 시 `getCourses(page, PAGE_SIZE)` 호출 |
+| REQ-CAT-002 / AC-FE-041 (서버 메타데이터 기반 페이지 이동, 자체 분할 금지) | **PASS** | `catalogModel.test.ts` 5건 — 0건·첫 페이지·중간 페이지·마지막 페이지(0-인덱스) 경계 + `totalElements`/`totalPages`/`currentPage` 원본 보존 검증. 화면은 `computePageControls`의 `hasPrevious`/`hasNext`만 소비, 클라이언트 재계산 없음 |
+| REQ-CAT-003 / AC-FE-042 (정원·확정·잔여·상태 식별 가능) | **PASS** | `CourseListPage.tsx` 항목 렌더링에 `capacity`/`enrolledCount`/`remainingCapacity`/`status` 전부 포함(코드 레벨 확인 — 화면 렌더링 자체는 plan.md §D.1에 따라 자동 테스트 필수 범위 아님) |
+| REQ-CAT-004 / AC-FE-043 (항목 선택 → 상세) | **PASS** | `CatalogSection.tsx` — `onSelectCourse`가 `view`를 `{screen:'detail', courseId}`로 전환, `CourseDetailPage`가 `getCourseDetail(courseId)` 호출 |
+| REQ-CAT-005 / AC-FE-044 (CLOSED 시 신청 조작 미제공 + 마감 표시) | **PASS** | `catalogModel.test.ts` 3건 — `isEnrollmentBlocked('CLOSED')===true`, `'OPEN'===false`, 미지 상태값도 `false`(닫힌 화이트리스트 아님, REQ-ENR-009와 동일 원칙 적용). `CourseDetailPage.tsx`는 이 판정으로 마감 안내와 일반 모집 상태 표시를 분기 — 신청 CTA 자체가 이 마일스톤에 없으므로 결과적으로 미노출 충족(M4가 CTA 배선 시 동일 헬퍼로 게이팅해야 함을 주석으로 남김) |
+| REQ-CAT-006 / AC-FE-045 (비로그인 열람 가능) | **PASS(코드 레벨)** | `App.tsx` — `AuthenticatedView`·`AnonymousView` 양쪽 모두 `<CatalogSection />` 렌더링. `CourseListPage`/`CourseDetailPage`는 `token`을 전달하지 않고 `useSession()`을 참조하지 않음(코드 레벨 확인). **브라우저 실관측은 미수행 — 아래 "필요 후속 조치" 참조** |
+| AC-FE-046 (404 시 화면 미중단) | **PASS(코드 레벨)** | `CourseDetailPage.tsx` — `getCourseDetail` 실패 시 `ApiError.normalized.message`만 표시, throw 재전파 없음(errors.ts 단일 정규화 지점 소비, REQ-ERR-002). 실제 404 브라우저 관측은 미수행 |
+| E1 (`tsc -b --force`) | **PASS** | exit=0, 출력 없음 |
+| E2 (lint, oxlint) | **PASS** | exit=0, 출력 없음 |
+| E3 (단위 테스트) | **PASS** | `npx vitest run` exit=0 — 8개 파일 **70건** 전부 통과(M1+M2 62건 + M3 신규 8건) |
+| E4 (프로덕션 빌드) | **PASS** | `npm run build`(`tsc -b && vite build`) exit=0, `dist/` 산출(32 modules) |
+| B4/B11 (AskUserQuestion 미사용) | **PASS** | `grep -rn "AskUserQuestion" src` → 0건 |
+| AC-FE-003 (하드코딩 URL 0건, 신규 파일) | **PASS** | `grep -rn "http://\|https://" src --include="*.ts" --include="*.tsx"` → 0건(테스트 제외) |
+| B1 (신규 라우팅 의존성 미도입) | **PASS** | `grep -E "react-router\|tanstack" package.json` → 0건. `node_modules`에도 미설치 확인 후 착수 |
+
+**필요 후속 조치 (오케스트레이터 책임 — plan.md M3 완료 판정)**: `plan.md` §F M3의 완료 판정은 "브라우저에서 목록·상세 열람 확인(비로그인 상태 포함)"이며, 이 마일스톤은 이를 코드 레벨로만 충족했다. M1·M2와 동일한 패턴(`claude-in-chrome` + 대체 오리진)의 브라우저 실관측이 필요하다. 로컬 개발 DB에 강좌 데이터가 0건으로 시딩되어 있으므로(M1 관측 — "총 0건 중 0건 표시"), 실관측 시 REQ-CAT-002의 빈 목록 정상 표시(§B2 known issue)와 강좌 상세 열람(데이터 시딩 또는 백엔드 테스트 픽스처 필요) 두 경로를 모두 확인해야 한다.
+
+**작업 트리 범위**: `frontend/src/catalog/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경.
+
+**커밋**: (M3 커밋은 이 progress.md 갱신과 함께 커밋됨 — SHA는 커밋 후 §E.3에서 백필)
+
 ---
 
 ## §E.3 Run-phase Audit-Ready Signal
