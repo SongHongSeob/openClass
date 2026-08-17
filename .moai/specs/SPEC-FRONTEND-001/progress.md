@@ -361,6 +361,57 @@ mode_selection: sub-agent (§G)
 
 ---
 
+### M5 — 관리자 화면
+
+**대상 요구사항**: `REQ-ADM-001`~`010`
+
+**산출물**:
+
+- `src/api/endpoints.ts` 확장 — `CourseFormPayload`(생성·수정 요청 바디, `CourseCreateRequest`/`CourseUpdateRequest`가 필드 구성이 동일해 하나로 통합 — 단순성 사다리) / `createCourse`(`POST /api/admin/courses`, 9번) / `updateCourse`(`PATCH /api/admin/courses/{id}`, 10번) / `closeCourse`(`POST /api/admin/courses/{id}/close`, 11번 — spec.md §A.4 주의 사항에 따라 12번 `DELETE`가 아니라 11번을 선택: 동일한 마감 전이이나 "삭제" 오해를 유발하는 HTTP 동사를 피함). 14개 중 12개 채움(취소 2종만 M6 남음)
+- `src/admin/adminModel.ts` (+`.test.ts`, 12건) — 순수 로직 지점(plan.md §D.1 "화면 모델 변환" 부류): `shouldShowAdminMenu`(REQ-ADM-001, `role==='ADMIN'`) / `resolveAdminGuardFallback`(REQ-ADM-002, M2의 `evaluateRoleGuard` 판정 결과를 라우트 레벨 대응 2종으로 변환 — `no-session`→`redirect-home`, `insufficient-role`→`forbidden`, 신규 역할 판정 로직 없이 기존 함수를 그대로 소비) / `toFormValues`(REQ-ADM-005, 강좌 상세 응답 → 폼 프리필 — 전 필드 유지) / `isCapacityIncrease`(REQ-ADM-006, 신규 정원 > 현재 정원일 때만 `true`) / `classifyCourseFormError`(REQ-ADM-007, `errors.ts` 단일 정규화 지점이 이미 판정한 문구를 그대로 쓰되 `code==='CAPACITY_BELOW_ENROLLMENT'`이면 정원 필드를 지목 — **문구 자체를 새로 만들지 않음**, 오류 정규화 단일 지점 유지)
+- `src/admin/AdminCoursesPage.tsx` — 관리자 강좌 목록(REQ-ADM-010, 공개 카탈로그 `getCourses` 재사용 — `catalogModel.ts`의 `computePageControls`도 그대로 재사용, 관리자 전용 목록 엔드포인트 없음). 항목별 "수정"·"마감" 버튼(`CLOSED` 상태는 "마감" 버튼 미노출) / "강좌 생성" 진입 버튼
+- `src/admin/AdminCourseFormPage.tsx` — 생성·수정 겸용 폼. `courseId` 유무로 모드 분기. 수정 모드는 마운트 시 `getCourseDetail`로 로드 후 `toFormValues`로 프리필하고, 제출 시 **항상 전 필드**를 `updateCourse`에 실어 보낸다(REQ-ADM-005, plan.md AP-8 — 변경 필드만 보내면 400). 정원 입력이 로드 당시 정원보다 커지면 `isCapacityIncrease` 판정에 따라 대기자 승격 비동기 안내를 표시(REQ-ADM-006). 제출 실패는 `classifyCourseFormError`로 분류해 정원 필드 강조 여부를 결정(REQ-ADM-007)
+- `src/App.tsx` 수정 — `AuthenticatedView`에 관리자 메뉴 버튼(REQ-ADM-001, `shouldShowAdminMenu(session.role)`로 게이팅) 추가. 신규 `AdminRoute` 컴포넌트 — 기존 `RequireRole`(guards.tsx)은 단일 `fallback`만 지원해 "세션 없음"(로그인 유도)과 "권한 부족"(권한 없음 안내, 로그인 유도 아님)을 구별하지 못하므로(REQ-ADM-002·design.md §A.6이 요구하는 비대칭), 이 화면군만 `evaluateRoleGuard`+`resolveAdminGuardFallback`을 직접 소비 — 기존 가드 컴포넌트를 수정하지 않고 신규 조합만 추가(M2/M4 기존 가드 로직 불변). 라우트 3개 신설: `/admin/courses`·`/admin/courses/new`·`/admin/courses/:id/edit`(design.md §A.6 경로 표와 일치)
+
+**AC / 항목 판정 (근거)**:
+
+| AC / 항목 | 판정 | 근거 |
+|---|---|---|
+| AC-FE-080/081 / REQ-ADM-001 (ADMIN 세션에 진입 수단 노출, 그 외 미노출) | **PASS(코드 레벨)** | `adminModel.test.ts` — `shouldShowAdminMenu('ADMIN')===true`, `shouldShowAdminMenu('MEMBER')===false`. `App.tsx`는 이 판정으로만 관리자 메뉴 버튼을 게이팅 |
+| AC-FE-082 / REQ-ADM-002 (일반 회원의 관리자 경로 직접 진입 → 미렌더링 + 권한 없음 안내, 로그인 유도 아님) | **PASS(코드 레벨)** | `adminModel.test.ts` — `resolveAdminGuardFallback({allowed:false, reason:'insufficient-role'})==='forbidden'`(로그인 유도를 뜻하는 `'redirect-home'`이 아님을 직접 구별). `App.tsx`의 `AdminRoute`는 `'forbidden'`일 때 `<p role="alert">이 화면에 접근할 권한이 없습니다.</p>`만 렌더링 — 리다이렉트 없음 |
+| REQ-SES-009 (세션 자체가 없는 관리자 경로 진입 → 로그인 유도) | **PASS(코드 레벨)** | `adminModel.test.ts` — `resolveAdminGuardFallback({allowed:false, reason:'no-session'})==='redirect-home'`. `AdminRoute`는 이 값일 때 `<Navigate to="/" replace />` |
+| AC-FE-083 / REQ-ADM-003 (가드가 보안 통제가 아님을 코드 주석으로 기록) | **PASS** | `App.tsx`의 `AdminRoute` 선언부 주석이 REQ-ADM-002·REQ-ADM-003·spec.md §A.7·INV-FE-005를 명시적으로 인용하며 "실제 강제는 백엔드의 403"이라고 기록 |
+| AC-FE-084 / REQ-ADM-004 (강좌 생성) | **PASS(코드 레벨)** | `AdminCourseFormPage.tsx` — `courseId` 없는 모드에서 제출 시 `createCourse` 호출 후 `onSaved`(목록으로 복귀, 재조회로 신규 항목 확인 가능) |
+| AC-FE-085/086 / REQ-ADM-005 (수정 요청 본문에 전 필드 포함, 제목만 변경해도 400 없음) | **PASS(코드 레벨)** | `adminModel.test.ts`의 `toFormValues` 테스트 — 강좌 상세 응답의 5개 필드(제목·설명·정원·시작·종료)가 전부 폼 값으로 이월됨을 검증. `AdminCourseFormPage.tsx`는 이 프리필 값을 `onChange`로만 부분 갱신하고, 제출 시 `values` 객체 전체(부분이 아님)를 `updateCourse`에 전달 — 코드 구조상 부분 전송 경로 자체가 없음 |
+| AC-FE-087/088 / REQ-ADM-006 (정원 증설 → 비동기 승격 안내, 재조회 시 확정 인원 증가) | **PASS(코드 레벨, 후반부 수동 확인 필요)** | `adminModel.test.ts`의 `isCapacityIncrease` 3건(증가/동일/감소) — 동일·감소는 안내 대상 아님을 명시적으로 구별. `AdminCourseFormPage.tsx`는 `originalCapacity < values.capacity`일 때만 안내 문구 렌더링. **재조회 시 확정 인원 증가 관측(AC-FE-088 후반부)은 백엔드 워커의 비동기 처리 결과이므로 브라우저 수동 확인 필요 — 아래 참고** |
+| AC-FE-089 / REQ-ADM-007 (409 CAPACITY_BELOW_ENROLLMENT 안내, 원문 미노출) | **PASS(코드 레벨)** | `adminModel.test.ts`의 `classifyCourseFormError` — `code==='CAPACITY_BELOW_ENROLLMENT'`일 때 `field:'capacity'` + `errors.ts`가 이미 판정한 한국어 안내 문구(`"현재 확정 인원보다 적은 정원으로는 변경할 수 없습니다."`)를 그대로 사용, 응답 원문(JSON 바디)은 어디에도 노출되지 않음(`ApiError.normalized.message`만 소비). **errors.ts 확장 불필요** — M1이 이미 `NormalizedError.code`/`status`를 노출하고 `CODE_MESSAGES`에 `CAPACITY_BELOW_ENROLLMENT`가 매핑되어 있어, 이 마일스톤은 그 결과를 정원 필드 강조로 재분류만 했다(오류 정규화 단일 지점 REQ-ERR-002 불변) |
+| AC-FE-090 / REQ-ADM-008 (마감 실행 → `CLOSED`) | **PASS(코드 레벨)** | `AdminCoursesPage.tsx` — `closeCourse` 성공 후 `load()`로 목록 재조회, 갱신된 `status` 표시(임의 상태 조작 없음 — 재호출로 서버 진실 반영, M6의 REQ-CNL-009와 동일한 원칙) |
+| AC-FE-091 / REQ-ADM-009 ("삭제" 미사용, 보존 표현) | **PASS(검사)** | `frontend/src/admin/*.tsx` grep 결과 "삭제" 문자열은 코드 주석 1건("REQ-ADM-008/009 — '삭제'가 아니라 마감...")뿐 — 사용자 노출 텍스트("강좌 생성"·"수정"·"마감"·"저장"·"취소")에는 등장하지 않음. 버튼 레이블은 "마감"만 사용 |
+| AC-FE-092 / REQ-CAT-005·REQ-ADM-008 (마감된 강좌는 일반 화면에서 신청 조작 미제공) | **PASS(코드 레벨, 회귀 없음)** | M3의 `isEnrollmentBlocked`(`catalogModel.ts`)를 M5가 수정하지 않았고 `CourseDetailPage.tsx`의 게이팅 로직도 불변 — 관리자 마감 조작이 호출하는 `closeCourse`는 백엔드 상태를 `CLOSED`로 바꿀 뿐 프론트엔드 판정 로직과 무관 |
+| AC-FE-093 / REQ-ADM-010 (관리자 목록이 공개 카탈로그 엔드포인트 사용) | **PASS(검사)** | `AdminCoursesPage.tsx` — `import { getCourses } from '../api/endpoints'`(M3이 만든 함수를 그대로 재사용, 관리자 전용 목록 함수 신설 없음) |
+| E1 (`tsc -b --force`) | **PASS** | exit=0, 출력 없음 |
+| E2 (lint, oxlint) | **PASS** | exit=0, 출력 없음 |
+| E3 (단위 테스트) | **PASS** | `npx vitest run` exit=0 — **14개 파일 103건** 전부 통과(M1~M4 91건 + M5 신규 12건: `adminModel.test.ts`) |
+| E4 (프로덕션 빌드) | **PASS** | `npm run build`(`tsc -b && vite build`) exit=0, `dist/`(148 modules, `index-*.js` 282.19 kB / gzip 88.67 kB) |
+| B4/B11 (AskUserQuestion 미사용) | **PASS** | `grep -rn "AskUserQuestion" frontend/src/admin/` → 0건 |
+| B1 (기존 역할 가드 재사용, 신규 판정 로직 없음) | **PASS** | `adminModel.ts`가 `guardLogic.ts`의 `evaluateRoleGuard`를 import해 그대로 소비 — `guardLogic.ts`/`guards.tsx` 자체는 이 마일스톤에서 무변경(`git status`로 확인) |
+
+**브라우저 수동 확인 — 미수행, 오케스트레이터 후속 필요**:
+
+plan.md M5 완료 판정("관리자 계정에서 생성·수정·마감 완주 + 일반 계정에서 관리자 메뉴 미노출 확인")은 사람이 브라우저에서 직접 확인하는 절차이며, `REQ-NFR-007`에 따라 자동 테스트만으로 이 마일스톤을 완료로 선언할 수 없다. 이 절은 **코드 레벨 검증만 수행했고 브라우저 실관측은 아직 이루어지지 않았다** — `claude-in-chrome`을 사용한 관리자 계정(`admin@local.test`, M1이 이미 시딩) 생성·수정·마감 완주 + 일반 계정에서 관리자 메뉴 미노출 확인이 오케스트레이터 후속 작업으로 필요하다. M4와 달리 강좌 생성·수정·마감은 큐/워커에 의존하지 않으므로(REQ-ADM-006의 정원 증설 승격 확인만 예외) M4가 겪은 Testcontainers/원격 풀러 플레이키니스의 영향을 덜 받을 것으로 예상된다.
+
+**잔여 위험 (Residual Risk)**:
+
+- AC-FE-088(정원 증설 후 재조회 시 확정 인원 증가 관측)은 백엔드 `CAPACITY_INCREASE` 워커의 비동기 처리에 의존하므로, 브라우저 수동 확인 시 즉시 반영되지 않을 수 있다(REQ-ADM-006이 명시한 바로 그 특성) — 확인 시 "잠시 후 재조회" 절차가 필요함을 유의해야 한다.
+- `AdminCourseFormPage.tsx`의 정원 입력은 `<input type="number" min={1}>` + `Number(event.target.value)`로 변환한다. 빈 문자열 입력 시 `Number('')===0`이 되어 `min={1}` 브라우저 검증에 걸리지만, 이 경계 케이스는 자동 테스트로 검증하지 않았다(plan.md §D.1에 따라 화면 렌더링 테스트는 필수 범위 아님).
+- `startsAt`/`endsAt`은 `<input type="datetime-local">`(초 없는 `YYYY-MM-DDTHH:mm`)을 그대로 전송한다. 백엔드 `LocalDateTime` 역직렬화(Jackson `jackson-datatype-jsr310`)가 초 생략을 허용함을 `ISO_LOCAL_DATE_TIME` 포맷 규격으로 확인했으나, 실제 요청으로 직접 검증하지는 않았다 — 위 브라우저 수동 확인에서 함께 확인 필요.
+
+**작업 트리 범위**: `frontend/src/admin/**`(신규), `frontend/src/api/endpoints.ts`(확장), `frontend/src/App.tsx`(수정), `.moai/specs/SPEC-FRONTEND-001/progress.md`(이 절)만 변경. `frontend/src/routing/guardLogic.ts`·`guards.tsx`·`frontend/src/api/errors.ts`는 무변경(기존 로직 재사용만, 확장 불필요 — 위 AC-FE-089 근거란 참고). 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경.
+
+**커밋**: (M5 커밋은 이 progress.md 갱신과 함께 커밋됨 — SHA는 커밋 후 §E.3에서 백필)
+
+---
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 _<pending run-phase>_

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router'
+import { useState, type ReactNode } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SessionProvider } from './session/SessionContext'
 import { useSession } from './session/useSession'
@@ -8,7 +8,11 @@ import { SignupPage } from './pages/SignupPage'
 import { LoginPage } from './pages/LoginPage'
 import { CatalogSection } from './catalog/CatalogSection'
 import { RequireAuth } from './routing/guards'
+import { evaluateRoleGuard } from './routing/guardLogic'
 import { RequestStatusPage } from './enrollment/RequestStatusPage'
+import { AdminCoursesPage } from './admin/AdminCoursesPage'
+import { AdminCourseFormPage } from './admin/AdminCourseFormPage'
+import { resolveAdminGuardFallback, shouldShowAdminMenu } from './admin/adminModel'
 
 // M2 — 회원가입·로그인·세션 수립/복원/폐기의 최소 실행 흐름(plan.md M2 완료
 // 판정: 브라우저에서 회원가입→로그인→새로고침 유지→탭 종료 후 소멸 확인).
@@ -24,6 +28,7 @@ type Screen = 'signup' | 'login'
 
 function AuthenticatedView() {
   const { session } = useSession()
+  const navigate = useNavigate()
   if (session.status !== 'authenticated') {
     return null
   }
@@ -34,8 +39,89 @@ function AuthenticatedView() {
         {session.email}로 로그인되어 있습니다. (역할: {session.role})
       </p>
       <LogoutButton />
+      {/* REQ-ADM-001 — 관리자 화면 진입 수단은 role === 'ADMIN'일 때만 노출한다. */}
+      {shouldShowAdminMenu(session.role) && (
+        <button type="button" onClick={() => navigate('/admin/courses')}>
+          관리자
+        </button>
+      )}
       <CatalogSection />
     </main>
+  )
+}
+
+/**
+ * `/admin/**` 경로 진입점의 공통 가드 — REQ-ADM-002. `RequireRole`(guards.tsx)
+ * 은 단일 fallback만 지원해 "세션 없음"과 "권한 부족"을 구별하지 못하므로,
+ * 이 화면군만 `evaluateRoleGuard` 판정을 직접 소비해 두 사유를 분기한다
+ * (`resolveAdminGuardFallback`, adminModel.ts). 세션이 없으면 로그인 화면으로
+ * 유도하고, 세션은 있으나 역할이 부족하면 화면을 렌더링하지 않고 권한 없음만
+ * 안내한다(design.md §A.6, AC-FE-082) — REQ-ADM-003이 요구하는 대로 이 판정은
+ * 보안 통제가 아니라 UX 장치일 뿐이며, 실제 강제는 백엔드의 403이다
+ * (spec.md §A.7, INV-FE-005).
+ */
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { session } = useSession()
+  const result = evaluateRoleGuard(session, 'ADMIN')
+  const fallback = resolveAdminGuardFallback(result)
+  if (fallback === null) {
+    return <>{children}</>
+  }
+  if (fallback === 'redirect-home') {
+    return <Navigate to="/" replace />
+  }
+  return <p role="alert">이 화면에 접근할 권한이 없습니다.</p>
+}
+
+function AdminCoursesRoute() {
+  const navigate = useNavigate()
+  const { session } = useSession()
+  const token = session.status === 'authenticated' ? session.token : ''
+  return (
+    <AdminRoute>
+      <AdminCoursesPage
+        token={token}
+        onCreateCourse={() => navigate('/admin/courses/new')}
+        onEditCourse={(courseId) => navigate(`/admin/courses/${courseId}/edit`)}
+      />
+    </AdminRoute>
+  )
+}
+
+function AdminCourseCreateRoute() {
+  const navigate = useNavigate()
+  const { session } = useSession()
+  const token = session.status === 'authenticated' ? session.token : ''
+  return (
+    <AdminRoute>
+      <AdminCourseFormPage
+        token={token}
+        onSaved={() => navigate('/admin/courses')}
+        onCancel={() => navigate('/admin/courses')}
+      />
+    </AdminRoute>
+  )
+}
+
+function AdminCourseEditRoute() {
+  const navigate = useNavigate()
+  const { session } = useSession()
+  const { id } = useParams<{ id: string }>()
+  const token = session.status === 'authenticated' ? session.token : ''
+  const parsedId = Number(id)
+  return (
+    <AdminRoute>
+      {Number.isFinite(parsedId) ? (
+        <AdminCourseFormPage
+          token={token}
+          courseId={parsedId}
+          onSaved={() => navigate('/admin/courses')}
+          onCancel={() => navigate('/admin/courses')}
+        />
+      ) : (
+        <p role="alert">잘못된 강좌 식별자입니다.</p>
+      )}
+    </AdminRoute>
   )
 }
 
@@ -97,6 +183,9 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/requests/:requestId" element={<RequestStatusRoute />} />
+      <Route path="/admin/courses" element={<AdminCoursesRoute />} />
+      <Route path="/admin/courses/new" element={<AdminCourseCreateRoute />} />
+      <Route path="/admin/courses/:id/edit" element={<AdminCourseEditRoute />} />
       <Route path="*" element={<Shell />} />
     </Routes>
   )
