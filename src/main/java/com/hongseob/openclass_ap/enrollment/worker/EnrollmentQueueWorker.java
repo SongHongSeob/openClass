@@ -1,6 +1,8 @@
 package com.hongseob.openclass_ap.enrollment.worker;
 
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +23,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class EnrollmentQueueWorker {
+
+    private static final Logger log = LoggerFactory.getLogger(EnrollmentQueueWorker.class);
 
     private final EnrollmentRequestProcessor processor;
     private final EnrollmentSchedulerProperties properties;
@@ -65,6 +69,12 @@ public class EnrollmentQueueWorker {
                 try {
                     processor.processOne(id);
                 } catch (RuntimeException ex) {
+                    // @MX:NOTE: [AUTO] 실패 진단 로깅(REQ-DIAG-001/003) — 예외 객체를 SLF4J 마지막
+                    // 인자로 전달해 타입·메시지·스택 트레이스가 모두 남게 한다. recordFailure의
+                    // REQUIRES_NEW 트랜잭션이 열리지 못해도 이 기록은 이미 남은 뒤다(§C.9 결정 1).
+                    // requestType은 재조회하지 않는다 — 실패 원인이 커넥션 계열이면 그 조회도 함께
+                    // 실패해 원인 로그 자체가 사라진다(§C.9 결정 2).
+                    log.warn("큐 요청 처리 실패 requestId={}", id, ex);
                     processor.recordFailure(id);
                 }
                 processed++;
