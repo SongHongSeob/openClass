@@ -31,12 +31,21 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 대상에서 제외한다 — AC-CRS-004가 명시한 "엔티티 필드 선언과 JPA 읽기 매핑은
  * 제외" 범위와 동일한 성격이다. 주석(Javadoc)도 코드가 아니므로 제외한다 — 주석은
  * 그 자체로 필드를 변경할 수 없다.</p>
+ *
+ * <p>{@code enrollment/worker/CourseCapacityRepository.java}({@code
+ * SPEC-ENROLLMENT-001}, REQ-WRK-002)도 제외한다 — 이 SPEC이 확정한 "{@code
+ * enrolled_count}를 변경하는 코드 경로는 큐 워커 처리 경로 단 1개소"라는 불변식의
+ * 그 유일한 경로 자체이며, {@code enrollment.worker} 패키지 밖에서 참조할 수 없음을
+ * {@code EnrollmentAggregateBoundaryArchitectureTest}(ArchUnit)가 별도로 강제한다.
+ * 이 테스트가 막는 것은 "그 유일한 경로 밖에서의 변경"이지, 그 경로 자체의 존재가
+ * 아니다.</p>
  */
 class CourseEnrolledCountMutationAbsenceTest {
 
     private static final Path SRC_MAIN = Path.of("src/main/java");
     private static final List<String> EXCLUDED_FILES =
-            List.of("Course.java", "CourseResponse.java", "CapacityBelowEnrollmentException.java");
+            List.of("Course.java", "CourseResponse.java", "CapacityBelowEnrollmentException.java",
+                    "CourseCapacityRepository.java");
 
     @Test
     void 프로덕션_소스에서_Course_엔티티와_읽기_전용_DTO_외에는_enrolled_count_참조가_전혀_없다() throws IOException {

@@ -24,10 +24,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code CourseRepository}가 {@link org.springframework.data.jpa.repository.JpaRepository}를
  * 상속하며 상속받은 {@code delete}류 메서드 선언 자체는 이 프로젝트 소스에
  * 나타나지 않으므로 호출부만 검색하면 충분하다.</p>
+ *
+ * <p>검색 범위는 {@code course} 패키지로 한정한다 — "이 SPEC의 산출물로 관찰
+ * 가능한 것만 단언한다"는 위 검증 범위 주석을 그대로 반영한 것이다.
+ * {@code SPEC-ENROLLMENT-001}이 M4/M5에서 정당하게 추가한 {@code enrollment.waitlist}
+ * 패키지·{@code promoteNextEligible} 헬퍼는 이 SPEC(SPEC-COURSE-001)의 산출물이
+ * 아니므로 이 단언의 대상이 아니다 — 원래 {@code src/main/java} 전체를 스캔하던
+ * 구현은 SPEC-ENROLLMENT-001이 아직 존재하지 않던 시점의 우연한 등가였을 뿐,
+ * 이 AC가 실제로 요구하는 범위가 아니었다.</p>
  */
 class CourseAdminStaticAbsenceTest {
 
-    private static final Path SRC_MAIN = Path.of("src/main/java");
+    private static final Path SRC_MAIN = Path.of("src/main/java/com/hongseob/openclass_ap/course");
     private static final List<String> WAITLIST_KEYWORDS = List.of("waitlist", "promote", "승격");
     private static final List<String> DELETE_CALL_PATTERNS = List.of(".delete(", ".remove(");
 
