@@ -1,7 +1,7 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격"
-version: "0.3.1"
+version: "0.3.2"
 status: in-progress
 created: 2026-08-15
 updated: 2026-08-17
@@ -28,6 +28,7 @@ amendment_of: SPEC-ENROLLMENT-001
 | 0.2.2 | 2026-08-16 | manager-spec | plan-auditor **2회차 PASS(0.92)** 후속 문서 정밀화 (경미 6건 N1~N6 중 이 파일 해당분 4건). **N4** — §A.4에 `enrollment.status`(2종)·`waitlist_entry.status`(4종, `DUPLICATE` 포함) 값 도메인과 합법 전이를 규범적으로 열거하고 "활성(active)"을 정의. REQ-WL-009의 "중복 상태"가 `DUPLICATE`임을 명시. **N5** — REQ-WL-001에 대기 순번 부여 규칙(`MAX(position) + 1` over 전체 이력, `COUNT(활성)+1` 금지)을 명시하여 승격 후 순번 충돌로 인한 큐 선두 정지 경로를 차단. **N1** — REQ-WL-003·REQ-WL-004·REQ-ADX-002의 무조건 `shall`에 모집 상태·승격 적격성 한정 어구 추가(REQ-WL-011/REQ-ADX-005/REQ-WL-009와의 표면상 모순 해소, 동작 변경 없음). **N2** — REQ-QUE-003의 접수 잠금 범위를 큐 INSERT 전 경로(`ENROLL`·`CANCEL`·`CAPACITY_INCREASE`)로 확장하여 AC-ENR-005의 실제 검증 범위와 일치시킴 |
 | 0.3.0 | 2026-08-17 | manager-spec | **제자리 개정(in-place amendment) — `DEP-2` 계약 폐쇄.** 회원 본인의 확정 수강신청·대기명단 항목을 그 **식별자와 함께** 반환하는 읽기 전용 조회 엔드포인트 2종을 추가한다. 기존 취소 엔드포인트 2종이 요구하는 `enrollmentId`·`waitlistEntryId`를 **이 SPEC의 어떤 응답도 반환하지 않아** 클라이언트가 취소를 호출할 경로 자체가 없던 결함을 닫는다. §A.6·§B.8(REQ-LST-001~006)·INV-ENR-010·AC-ENR-054~058 신설. **M1~M6의 기존 동작·요구사항·인수 기준은 한 건도 변경하지 않았다** — 전부 추가만 했다 |
 | 0.3.1 | 2026-08-17 | manager-spec | **제자리 개정(in-place amendment) — 큐 처리 실패의 진단 불가능성 해소.** `EnrollmentQueueWorker.drainQueue()`의 `catch (RuntimeException ex)` 블록이 포착한 예외를 **어떤 형태로도 기록하지 않고 폐기**하여, `result='FAILED'`로 종결된 요청의 원인을 애플리케이션 로그만으로는 규명할 수 없는 상태였다. §A.7·§B.9(REQ-DIAG-001~003)·INV-ENR-011·AC-ENR-059~061 신설. **근본 원인의 수정 내용은 이 개정이 규정하지 않는다** — 원인이 아직 미지이며, 관측 수단(로깅)을 먼저 확보한 뒤 M8에서 실제 예외를 보고 조사한다. **M1~M7의 기존 요구사항·불변식·인수 기준은 한 건도 변경하지 않았다** — 전부 추가만 했다 |
+| 0.3.2 | 2026-08-17 | manager-spec | **plan-audit 1회차(FAIL 0.847) 지적 사항 D1~D5 반영.** **D1** — `EnrollmentQueueWorker.drainQueue()` catch 블록의 행 번호 인용을 실제 소스에 맞게 정정(`66~70행` → **`65~69행`**, 인용 코드 블록에서 블록 밖인 `processed++;`(70행) 제거, `68행 선언` → `67행`, `69행 recordFailure` → `68행`). spec.md §A.7.1 · plan.md §A.4/§F M8 · progress.md §E.1 4개소 전부. **D2** — AC-ENR-061의 "(또는 그와 동종의 실패)" 문구 삭제 + **주입 실패 배제 조건**(스택 트레이스 상단 프레임이 테스트 전용 주입 훅이면 불충족) 신설. **D3** — AC-ENR-061 5번 항목의 (b) 판정 근거를 **소속 패키지 기준 → 유래(origin) 기준**으로 교정하고 plan.md §F M8을 규범적 정의로 교차 참조. **D4** — 자매 산출물이 `status: completed`를 유지하는 것이 v0.3.0에서 확립된 **의도된 규약**임을 `## Amendments` § 개정 2에 명시. **D5** — **REQ-DIAG-004 신설**(§B.9, 실제 관측된 예외 상세와 (a)/(b) 판정·근거의 progress.md 기록 의무)하고 AC-ENR-061을 그것에 재연결. 요구사항 62 → **63**건 |
 
 ## Amendments
 
@@ -60,10 +61,12 @@ amendment_of: SPEC-ENROLLMENT-001
 |---|---|
 | 직전 완료 버전 | **0.3.0** (`status: completed`, 2026-08-17) |
 | `prior_completed_sha` | `c80087e66ff940ca7a932f1780fc79a8a4586447` (progress.md §E.4 addendum `sync_commit_sha` — M7 sync-phase 마무리 커밋. 이후 `09e79d0`은 그 SHA를 문서에 백필한 커밋일 뿐 상태 전이가 아니다) |
-| 개정 버전 | **0.3.1** (`status: in-progress`) |
-| 개정 범위 (§B REQ ID) | **신설만** — REQ-DIAG-001 ~ REQ-DIAG-003 (§B.9), INV-ENR-011 (§C). 기존 REQ/INV **0건 변경** |
-| 대응 AC | **신설만** — AC-ENR-059 ~ AC-ENR-061. 기존 AC **0건 변경** |
+| 개정 버전 | **0.3.1** 개시 → **0.3.2** (plan-audit 1회차 FAIL 0.847 지적 D1~D5 반영). `status: in-progress` |
+| 개정 범위 (§B REQ ID) | **신설만** — REQ-DIAG-001 ~ REQ-DIAG-004 (§B.9; REQ-DIAG-004는 v0.3.2에서 지적 D5로 추가), INV-ENR-011 (§C). 기존 REQ/INV **0건 변경** |
+| 대응 AC | **신설만** — AC-ENR-059 ~ AC-ENR-061. 기존 AC **0건 변경** (v0.3.2에서 AC-ENR-061의 판정 기준을 정밀화하고 대응 요구사항을 REQ-DIAG-004로 재연결했으나, AC 자체의 신설·삭제는 없다) |
 | 대응 마일스톤 | **M8** (plan.md §F). M1~M7은 완료 상태 그대로 유지 |
+
+**자매 산출물의 `status` 표기 (plan-audit 1회차 지적 D4)**: 제자리 개정 중에도 `plan.md`·`acceptance.md`·`progress.md`의 frontmatter `status`는 **의도적으로 `completed`를 그대로 유지**하고 `version`만 함께 올린다 — 상태 전이(`completed → in-progress`)를 담는 권위 있는 산출물은 **`spec.md` 단독**이다 (`.claude/rules/moai/development/spec-frontmatter-schema.md` § Status Transition Ownership Matrix는 상태 전이를 SPEC 단위로 규정하며, 자매 산출물의 `status`는 그 파생 표기다). 이는 v0.3.0 개정에서 이미 확립된 패턴이며(커밋 `7745692` — 자매 3종은 `version`만 `0.2.2 → 0.3.0`으로 변경되고 `status`는 손대지 않았다), 개정 1·2 모두 동일하게 따른다. 따라서 자매 산출물이 `status: completed`인 채 `spec.md`만 `in-progress`인 상태는 **드리프트가 아니라 규약**이다.
 
 **개정 사유 (rationale)**
 
@@ -80,7 +83,7 @@ amendment_of: SPEC-ENROLLMENT-001
 
 **이 개정이 규정하지 않는 것 — 근본 원인의 수정 내용**
 
-`processOne`이 왜 예외를 던지는지는 **현재 알려져 있지 않다.** 후보는 (a) 최근 변경으로 유입·노출된 `ENROLL` 디스패치 경로의 로직/데이터 결함, (b) 원격 Supabase 세션 풀러(`aws-0-ap-southeast-1.pooler.supabase.com`)를 쓰는 로컬 개발 환경 고유의 네트워크/커넥션 요인, (c) 그 밖의 것 등이며, **어느 쪽인지는 실제 스택 트레이스를 보기 전에는 결정할 수 없다.** 따라서 이 개정은 요구사항으로 **관측 가능성만** 규정하고, 수정 내용은 규정하지 않는다. 조사와 그 결과에 따른 조치는 M8의 산출물이며 plan.md §F M8 / progress.md에 기록된다. 조사 결과 애플리케이션 결함으로 판명되어 수정이 이루어지면 그 사실은 후속 소규모 개정으로 spec.md에 반영한다.
+`processOne`이 왜 예외를 던지는지는 **현재 알려져 있지 않다.** 후보는 (a) 최근 변경으로 유입·노출된 `ENROLL` 디스패치 경로의 로직/데이터 결함, (b) 원격 Supabase 세션 풀러(`aws-0-ap-southeast-1.pooler.supabase.com`)를 쓰는 로컬 개발 환경 고유의 네트워크/커넥션 요인, (c) 그 밖의 것 등이며, **어느 쪽인지는 실제 스택 트레이스를 보기 전에는 결정할 수 없다.** 따라서 이 개정은 요구사항으로 **관측 가능성(REQ-DIAG-001~003)과 그 관측 결과의 기록 의무(REQ-DIAG-004)만** 규정하고, **수정 내용은 규정하지 않는다.** 조사와 그 결과에 따른 조치는 M8의 산출물이며 plan.md §F M8 / progress.md에 기록된다. 조사 결과 애플리케이션 결함으로 판명되어 수정이 이루어지면 그 사실은 후속 소규모 개정으로 spec.md에 반영한다.
 
 > **추측으로 고치지 않는다**는 것이 이 개정의 핵심 판단이다. 원인을 모르는 상태에서 후보 (a)를 가정하고 코드를 바꾸면, 실제 원인이 (b)일 때 **아무것도 고치지 못한 채 검증된 M1~M7 코드만 흔들게 된다.** 관측 → 판정 → 조치 순서를 요구사항과 마일스톤 구조로 강제한다.
 
@@ -287,17 +290,17 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 
 #### A.7.1 확인된 결함 — 포착된 예외의 무기록 폐기
 
-**직접 확인한 현재 코드**다. `src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java` **60~74행** `drainQueue()`의 내부 루프, **66~70행**:
+**직접 확인한 현재 코드**다. `src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java` **60~74행** `drainQueue()`의 내부 루프, **65~69행**:
 
 ```java
-66                try {
-67                    processor.processOne(id);
-68                } catch (RuntimeException ex) {
-69                    processor.recordFailure(id);
-70                }
+65                try {
+66                    processor.processOne(id);
+67                } catch (RuntimeException ex) {
+68                    processor.recordFailure(id);
+69                }
 ```
 
-포착한 예외 참조 `ex`는 **68행에서 선언된 뒤 어디에서도 사용되지 않는다.** 69행의 `recordFailure(id)`는 예외를 인자로 받지 않으며, 그 구현(`EnrollmentRequestProcessor` 115~123행)도 `state='DONE'`·`result='FAILED'` 기록과 `"큐 요청 처리 종료 requestId={} result={}"` 한 줄만 남긴다 — **예외 타입도, 메시지도, 스택 트레이스도 기록하지 않는다.** 즉 `ex`는 catch 블록 종료와 함께 소멸한다.
+포착한 예외 참조 `ex`는 **67행에서 선언된 뒤 어디에서도 사용되지 않는다.** 68행의 `recordFailure(id)`는 예외를 인자로 받지 않으며, 그 구현(`EnrollmentRequestProcessor` 115~123행)도 `state='DONE'`·`result='FAILED'` 기록과 `"큐 요청 처리 종료 requestId={} result={}"` 한 줄만 남긴다 — **예외 타입도, 메시지도, 스택 트레이스도 기록하지 않는다.** 즉 `ex`는 catch 블록 종료와 함께 소멸한다.
 
 #### A.7.2 그 결과 로그가 보여주는 것과 감추는 것
 
@@ -314,7 +317,7 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 
 #### A.7.3 이 결함의 독립성
 
-이 결함은 v0.3.1 개정의 계기가 된 특정 실패 현상과 **논리적으로 독립**이다. 그 현상의 근본 원인이 애플리케이션 결함이든 외부 인프라 요인이든, "실패 원인을 로그로 규명할 수 없다"는 성질은 그대로 남는다. 그러므로 이 절이 규정하는 요구사항(§B.9)은 **원인 규명의 결과에 조건부가 아니며**, M8 Step A로 항상 이행된다.
+이 결함은 v0.3.1 개정의 계기가 된 특정 실패 현상과 **논리적으로 독립**이다. 그 현상의 근본 원인이 애플리케이션 결함이든 외부 인프라 요인이든, "실패 원인을 로그로 규명할 수 없다"는 성질은 그대로 남는다. 그러므로 이 절이 규정하는 **관측 가능성** 요구사항(§B.9의 REQ-DIAG-001 ~ 003)은 **원인 규명의 결과에 조건부가 아니며**, M8 Step A로 항상 이행된다. §B.9의 REQ-DIAG-004는 그 관측이 이루어진 **뒤의 기록 의무**이므로 M8 Step B에 대응하며, 조사 결과가 (a)든 (b)든 기록 의무 자체는 동일하게 이행된다.
 
 반대 방향의 의존은 성립한다 — **관측 수단 없이는 원인을 판정할 수 없으므로**, 근본 원인 조사(M8 Step B)는 이 요구사항의 이행을 선행 조건으로 갖는다.
 
@@ -435,6 +438,11 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 - **REQ-DIAG-003** (Ubiquitous) — 실패 진단 기록의 추가는 요청 처리의 **제어 흐름·트랜잭션 경계·종단 결과값**을 변경 **shall not**한다. 구체적으로 REQ-WRK-009(단일 요청의 실패가 큐 전체를 정지시키지 않음), REQ-WRK-010(요청 1건 = 트랜잭션 1개), 그리고 실패한 요청이 `state='DONE'`·`result='FAILED'`로 종결된다는 동작은 **그대로 유지 shall**된다.
 
   > 로깅은 관측 행위이지 제어 행위가 아니다. 이 요구사항이 없으면 M8 구현자가 예외를 기록하는 김에 재던지기·재시도·결과값 변경을 함께 넣어 **검증이 끝난 M1~M6의 실패 격리 설계를 흔들 수 있다.** AC-ENR-059가 로깅 추가 후에도 AC-ENR-016/017의 동작이 유지되는지를 같은 테스트에서 확인한다.
+- **REQ-DIAG-004** (Event-driven) — **When** REQ-DIAG-001의 실패 진단 로깅이 반영된 뒤 실제 실패가 관측되면, 그 예외의 **타입 전체 이름·메시지 원문·스택 트레이스 상단 프레임**과, 그 원인이 **(a) 이 코드베이스가 소유한 애플리케이션 결함**인지 **(b) 이 코드베이스 밖의 외부·인프라 요인**인지의 **판정 및 그 판정 근거**가 `progress.md` §E.2 M8 절에 기록 **shall**된다. 이 기록은 (a)/(b) 어느 판정에서도 동일하게 이행 **shall**되며, 판정이 (b)라는 이유로 생략 **shall not**된다.
+
+  > **REQ-DIAG-001과 무엇이 다른가 (plan-audit 1회차 지적 D5)**: REQ-DIAG-001은 실패 시점에 **로그가 남는가**(관측 수단의 확보)를 요구하고, 이 요구사항은 그렇게 남은 로그를 **실제로 읽고 판정하여 기록했는가**(관측의 실행과 그 결과의 보존)를 요구한다. 앞의 것은 M8 Step A로, 뒤의 것은 M8 Step B로 이행된다 (plan.md §F M8). 이 요구사항이 없으면 AC-ENR-061이 요구하는 조사·기록 의무를 뒷받침하는 §B 요구사항이 존재하지 않아, 인수 기준이 요구사항 없이 홀로 서게 된다. 분기 (a)/(b)의 **규범적 정의는 plan.md §F M8 Step B**이며, 그 정의는 예외의 **유래(origin)** 로 나뉘지 예외 클래스의 소속 패키지로 나뉘지 않는다 — JDK 패키지에 속한 예외라도 이 코드베이스의 로직이 유발했으면 (a)다.
+  >
+  > 이 요구사항은 문서 기록을 대상으로 하지만 **관찰 가능**하다 — REQ-WRK-015(워커 처리량 산출 근거의 문서 기록)가 이미 같은 형태의 선례다. 근본 원인의 **수정**을 요구하지 않는 이유는 AC-ENR-061의 근거 절에 있다.
 
 ---
 
@@ -539,7 +547,7 @@ WAITING      →  status=DUPLICATE           [승격 부적격 판정 후 종결
 8. 동시 접수 500건 부하에서 마지막 요청까지 5초 이내에 종단 결과에 도달한다 (REQ-STS-003).
 9. 전체 테스트 커버리지 85% 이상, LSP 에러·타입에러·린트에러 0건.
 10. (v0.3.0 개정) 회원이 자신의 보유 내역을 조회하여 얻은 `enrollmentId`·`waitlistEntryId`로 **추측이나 열거 없이** 취소 API를 호출할 수 있고, 그 조회에 다른 회원의 데이터가 섞이지 않는다 (REQ-LST-006, INV-ENR-010).
-11. (v0.3.1 개정) 큐 요청이 `FAILED`로 종결되면 **로그만 보고** 그 실패를 일으킨 예외의 타입·메시지·발생 지점을 알 수 있고, 그 로깅 추가로 실패 격리(REQ-WRK-009)와 처리 원자성(REQ-WRK-010)의 동작은 달라지지 않는다 (REQ-DIAG-001~003, INV-ENR-011).
+11. (v0.3.1 개정) 큐 요청이 `FAILED`로 종결되면 **로그만 보고** 그 실패를 일으킨 예외의 타입·메시지·발생 지점을 알 수 있고, 그 로깅 추가로 실패 격리(REQ-WRK-009)와 처리 원자성(REQ-WRK-010)의 동작은 달라지지 않는다. 나아가 그 로그로 실제 실패를 판정한 결과와 근거가 progress.md에 남는다 (REQ-DIAG-001~004, INV-ENR-011).
 
 ---
 

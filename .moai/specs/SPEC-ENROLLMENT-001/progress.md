@@ -1,7 +1,7 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — 진행 기록"
-version: "0.3.1"
+version: "0.3.2"
 status: completed
 created: 2026-08-15
 updated: 2026-08-17
@@ -21,9 +21,11 @@ tier: L
 - `plan_status`: audit-ready — **plan-auditor 2회차 PASS (0.92 / Tier L 임계 0.85)**, must-pass 실패·치명·중대 0건. 후속 경미 지적 6건(N1~N6)은 v0.2.2에서 전건 해소
 - 산출물: `spec.md`, `plan.md`, `acceptance.md`, `design.md`, `research.md`, `progress.md` — **Tier L 필수 5종 전부 + 진행 기록**, status: draft
 - Tier 판정: **L** (예상 16~18 프로덕션 파일 + 10~12 테스트 파일, 동시성 모델이 프로젝트 전체에 헌법적 영향)
-- 요구사항 **59건** + 불변식 **10건** = **69건**, 인수 기준 **58건**, 미대응 0건 (acceptance.md §D.2 — 매트릭스 69행)
+- 요구사항 **63건** + 불변식 **11건** = **74건**, 인수 기준 **61건**, 미대응 0건 (acceptance.md §D.2 — 매트릭스 74행)
 
-  > **v0.3.0 제자리 개정 반영값이다.** v0.2.2(= M1~M6 run 범위)에서는 요구사항 53 + 불변식 9 = 62, 인수 기준 53이었다. 아래 §E.3의 `ac_scope: AC-ENR-001..AC-ENR-053` · `ac_pass_count: 53` · `requirements_scope ... (53건)`은 **그 시점의 기록으로 정확하며 수정 대상이 아니다** — 신설분(REQ-LST-001~006 / INV-ENR-010 / AC-ENR-054~058)은 M7 미구현 상태이므로 run 증거에 포함될 수 없다. 개정 배경은 spec.md `## Amendments`, plan.md §A.3 참조.
+  > **v0.3.2 반영값이다.** 개정 단계별 값은 다음과 같다 — v0.3.0에서 요구사항 59 + 불변식 10 = 69, 인수 기준 58이었고, v0.3.1에서 REQ-DIAG-001~003 · INV-ENR-011 · AC-ENR-059~061이 추가되어 62 + 11 = 73, 인수 기준 61이 되었으며, v0.3.2에서 plan-audit 1회차 지적 D5로 REQ-DIAG-004가 추가되어 **63 + 11 = 74, 인수 기준 61**(AC 신설 없음 — AC-ENR-061의 대응 요구사항 재연결만)이 되었다.
+
+  > **v0.3.0 제자리 개정 시점의 기록.** v0.2.2(= M1~M6 run 범위)에서는 요구사항 53 + 불변식 9 = 62, 인수 기준 53이었다. 아래 §E.3의 `ac_scope: AC-ENR-001..AC-ENR-053` · `ac_pass_count: 53` · `requirements_scope ... (53건)`은 **그 시점의 기록으로 정확하며 수정 대상이 아니다** — 신설분(REQ-LST-001~006 / INV-ENR-010 / AC-ENR-054~058)은 M7 미구현 상태이므로 run 증거에 포함될 수 없다. 개정 배경은 spec.md `## Amendments`, plan.md §A.3 참조.
 
   > 이 줄은 v0.2.1까지 "요구사항 49건 + 불변식 8건 = 57건, 인수 기준 49건 … 기계 검증 완료"로 남아 있었다. 2차 감사(E1·E2) 반영으로 요구사항 4건·불변식 1건·AC 4건이 추가된 뒤 갱신되지 않은 값이며, **틀린 숫자에 "기계 검증 완료"가 붙어 있던 것**이므로 단순 노후화가 아니라 검증 무결성 문제였다 (2회차 감사 지적 N3). v0.2.2에서 acceptance.md §D.2 매트릭스를 다시 세어 정정했다.
 - 미해소 클래리피케이션 마커: **0건** (SPEC 3분할 / 인증 JWT / 프론트엔드 백엔드 우선 — 모두 사용자 결정으로 확정)
@@ -81,22 +83,37 @@ Implementation Kickoff Approval → run (M7). 진입 시 Phase 1 plan-audit이 h
 
 - `plan_status`: audit-ready (개정분) — **plan-auditor 미실행.** 이 개정은 M1~M7의 설계·동작을 변경하지 않고 실패 경로에 기록만 추가하므로 전면 재감사를 전제하지 않는다. 다만 `spec.md`·`plan.md`·`acceptance.md`가 수정되어 **plan-artifact hash가 변경**되었으므로, `.claude/rules/moai/workflow/spec-workflow.md` § Phase 1 Plan Audit Gate의 skip 조건 3(artifact-hash unchanged)이 깨졌다 — **다음 `/moai run` 진입 시 Phase 1 plan-audit이 재실행된다.** 정상 동작이며 우회 대상이 아니다.
 - 상태 전이: `completed → in-progress` (spec.md frontmatter). `amendment_of: SPEC-ENROLLMENT-001`(자기 참조)은 v0.3.0에서 선언되어 그대로 유지된다. 직전 완료 SHA: `c80087e66ff940ca7a932f1780fc79a8a4586447` (§E.4 addendum `sync_commit_sha` — M7 sync-phase 마무리 커밋)
-- 개정 산출물: `spec.md`(HISTORY·`## Amendments` § 개정 2·§A.7·§B.9·INV-ENR-011·§D·§E 추가), `plan.md`(§A.4·§C.9·§F M8·§G 안티패턴 10행 추가), `acceptance.md`(AC-ENR-059~061·매트릭스 4행 추가·§D.4 3항 추가), `progress.md`(이 절). **`design.md`는 변경하지 않았다** — 이 개정은 API 계약도 데이터 모델도 처리 흐름도 바꾸지 않는다.
-- 신설: 요구사항 **3건**(REQ-DIAG-001 ~ 003) + 불변식 **1건**(INV-ENR-011) + 인수 기준 **3건**(AC-ENR-059 ~ 061)
-- 기존 항목 변경: **0건** — REQ·INV·AC 어느 것도 수정·삭제하지 않았다.
+- 개정 산출물: `spec.md`(HISTORY·`## Amendments` § 개정 2·§A.7·§B.9·INV-ENR-011·§D·§E 추가), `plan.md`(§A.4·§C.9·§F M8·§G 안티패턴 10행 추가), `acceptance.md`(AC-ENR-059~061·매트릭스 **5행** 추가·§D.4 3항 추가), `progress.md`(이 절). **`design.md`는 변경하지 않았다** — 이 개정은 API 계약도 데이터 모델도 처리 흐름도 바꾸지 않는다.
+- 신설: 요구사항 **4건**(REQ-DIAG-001 ~ 004 — 004는 v0.3.2에서 추가) + 불변식 **1건**(INV-ENR-011) + 인수 기준 **3건**(AC-ENR-059 ~ 061)
+- 기존 항목 변경: **0건** — REQ·INV·AC 어느 것도 수정·삭제하지 않았다. (v0.3.2에서 AC-ENR-061의 판정 기준을 정밀화하고 대응 요구사항을 재연결했으나 AC의 신설·삭제는 없다.)
 
 **발견 경위와 확인 사실**
 
 후속 `SPEC-FRONTEND-001`의 run 단계 브라우저 검증 중 `POST /api/courses/{courseId}/enrollments` 요청이 **재현율 100%**(백엔드 3회 이상 재기동에 걸쳐 5회 이상 시도, 로컬 개발 환경의 datasource는 원격 Supabase 세션 풀러 `aws-0-ap-southeast-1.pooler.supabase.com`)로 `result='FAILED'`로 종결되는 현상이 관측되었다. 로그에는 `큐 요청 처리 시작 requestId=N requestType=ENROLL` / `큐 요청 처리 종료 requestId=N result=FAILED` 두 줄만 남고 예외 정보는 전무했다.
 
-plan-phase에서 `src/main/java/.../enrollment/worker/EnrollmentQueueWorker.java`를 **직접 재확인**하여 원인 구조를 특정했다 — `drainQueue()` 60~74행 중 **66~70행**의 `catch (RuntimeException ex)`가 포착한 `ex`를 **선언 후 한 번도 사용하지 않고 폐기**한다. 69행 `recordFailure(id)`는 예외를 인자로 받지 않으며 그 구현(`EnrollmentRequestProcessor` 115~123행)도 `result=FAILED` 한 줄만 남긴다. 관측된 로그 두 줄은 `processOne` 99행(시작)과 `recordFailure` 121행(종료)에서 나온 것이며, 정상 종료 로그(`processOne` 102행)가 없다는 사실이 예외 발생을 확증한다.
+plan-phase에서 `src/main/java/.../enrollment/worker/EnrollmentQueueWorker.java`를 **직접 재확인**하여 원인 구조를 특정했다 — `drainQueue()` 60~74행 중 **65~69행**의 `catch (RuntimeException ex)`가 포착한 `ex`를 **선언 후 한 번도 사용하지 않고 폐기**한다. 68행 `recordFailure(id)`는 예외를 인자로 받지 않으며 그 구현(`EnrollmentRequestProcessor` 115~123행)도 `result=FAILED` 한 줄만 남긴다. 관측된 로그 두 줄은 `processOne` 99행(시작)과 `recordFailure` 121행(종료)에서 나온 것이며, 정상 종료 로그(`processOne` 102행)가 없다는 사실이 예외 발생을 확증한다.
 
 **근본 원인은 아직 미지 — 이 개정이 규정하지 않는 것**
 
-`processOne`이 왜 예외를 던지는지는 **알려져 있지 않다.** 후보는 (a) `ENROLL` 디스패치 경로의 애플리케이션 결함, (b) 원격 세션 풀러를 쓰는 로컬 환경 고유의 네트워크/커넥션 요인, (c) 그 밖. **관측 없이는 판정할 수 없으므로** 요구사항으로는 관측 가능성(REQ-DIAG-001~003)만 규정하고, 원인 조사와 조치는 M8 Step B의 산출물로 두었다. 추측에 근거한 수정은 plan.md §G에서 명시적으로 금지된다.
+`processOne`이 왜 예외를 던지는지는 **알려져 있지 않다.** 후보는 (a) `ENROLL` 디스패치 경로의 애플리케이션 결함, (b) 원격 세션 풀러를 쓰는 로컬 환경 고유의 네트워크/커넥션 요인, (c) 그 밖. **관측 없이는 판정할 수 없으므로** 요구사항으로는 관측 가능성(REQ-DIAG-001~003)과 그 관측 결과의 기록 의무(REQ-DIAG-004 — v0.3.2 추가)만 규정하고, **근본 원인의 수정 내용**은 규정하지 않은 채 M8 Step B의 산출물로 두었다. 추측에 근거한 수정은 plan.md §G에서 명시적으로 금지된다.
 
 - **잔여 검증 부채**: AC-ENR-059 ~ 061은 **전건 미검증(M8 미구현)**. §E.2 / §E.3의 run 증거는 M1~M7(AC-ENR-001 ~ 058) 범위이며 이 개정으로 무효화되지 않는다. M8 구현 후 그 증거(특히 AC-ENR-061이 요구하는 **실제 관측된 예외 상세와 (a)/(b) 판정**)는 manager-develop이 §E.2 / §E.3에 기록한다 — 이 절(§E.1)은 plan-phase 신호만 담는다.
 - **재감사자를 위한 판정 안내**: M8은 "코드 결함을 고쳤다"와 "외부 요인으로 확인하고 기록했다" **두 가지 모두를 유효한 완료 상태로 인정**한다 (plan.md §F M8 전체 완료 판정). §E.2 M8 절만 읽고 어느 쪽인지 판별할 수 있어야 하며, (b)로 판정된 경우 근본 원인 미수정을 이유로 미완료 처리하지 않는다.
+
+### v0.3.2 — plan-audit 1회차(FAIL 0.847) 지적 D1~D5 반영
+
+`.moai/reports/plan-audit/SPEC-ENROLLMENT-001-v0.3.1-review-1.md` — **FAIL 0.847** (Tier L 임계 0.85 대비 **-0.003**), **must-pass 방화벽 전건 통과**. 지적 5건(중대 3 · 경미 2)을 전건 반영했다. 설계 변경은 없으며, 문서 정확성·판정 기준·요구사항 커버리지 교정이다.
+
+| 지적 | 등급 | 무엇이 어긋나 있었나 | 반영 |
+|---|---|---|---|
+| **D1** | 중대 | `EnrollmentQueueWorker.drainQueue()` catch 블록 행 번호가 **한 행씩 밀려** 인용되어 있었다(`66~70행`). 실제는 `65~69행`이며, 인용 코드 블록은 블록 **밖**인 `processed++;`(70행)를 포함하고 있었다 — **직접 확인했다고 단언한 검증 주장의 근거가 실제 소스와 어긋난 상태** | 4개소 전부 정정: spec.md §A.7.1(행 범위 + 코드 블록 재번호 + `68행 선언`→`67행` + `69행 recordFailure`→`68행`), plan.md §A.4, plan.md §F M8 Step A, progress.md §E.1(아래 "발견 경위"). `EnrollmentRequestProcessor` 인용(115~123 / 99 / 102 / 121)은 감사자가 정확함을 확인하여 **손대지 않았다** |
+| **D2** | 중대 | AC-ENR-061의 Given이 "(또는 그와 **동종의** 실패)"를 허용하여, 테스트 전용 주입 훅이 던진 깨끗한 `IllegalStateException`으로 이 AC를 충족시킬 수 있었다 — **실제 실패를 한 번도 관측하지 않고 Step B를 종결**할 수 있는 구멍 | 해당 괄호 문구 삭제 + **주입 실패 배제 조건** 신설: 기록된 예외의 스택 트레이스 **상단 프레임이 `EnrollmentFailureInjector` 계열을 가리키면 불충족**. 재감사자가 기록된 프레임 클래스명을 코드베이스와 대조하여 기계적으로 판정한다 |
+| **D3** | 중대 | AC-ENR-061 5번의 (b) 판정 근거가 "예외 클래스의 **소속 패키지**가 이 코드베이스 밖"으로 적혀 plan.md §F M8의 **유래(origin) 기준** 분기 정의와 모순되었다. 그대로 두면 코드베이스가 유발한 NPE를 "JDK 패키지이므로 외부"로 오분류하여 **무수정 종료 경로**를 탈 수 있었다 | 5번 항목을 유래 기준으로 재작성(상단 프레임이 이 코드베이스 클래스가 아님 + 드라이버·풀러·네트워크 계층 시그니처)하고 **패키지 소속만으로는 불충분**함을 NPE 예시와 함께 명시. plan.md §F M8 Step B를 **규범적 정의**로 교차 참조하고, 그 절에도 정의를 명문화 |
+| **D4** | 경미 | 자매 산출물 3종이 `status: completed`인 채 spec.md만 `in-progress`여서, 의도된 규약인지 드리프트인지 문서만으로 판별 불가 | **(b)안 채택** — v0.3.0 개정(커밋 `7745692`)에서 자매 3종이 `version`만 올리고 `status`를 유지한 것이 확립된 패턴임을 확인하고, 그것이 **의도된 규약**임을 spec.md `## Amendments` § 개정 2에 명문화. 자매 3종의 `status`는 그대로 두고 `version`만 `0.3.2`로 올렸다 |
+| **D5** | 경미 | AC-ENR-061이 REQ-DIAG-001로 추적되지만, REQ-DIAG-001은 "예외가 로그에 남을 것"만 요구할 뿐 Step B의 **조사 수행·결과 기록 의무**를 부과하지 않는다 — 인수 기준이 요구사항보다 더 많은 것을 요구하는 상태 | **(a)안 채택** — spec.md §B.9에 **REQ-DIAG-004**(Event-driven) 신설: 관측된 예외의 타입 전체 이름·메시지 원문·스택 트레이스 상단 프레임 + (a)/(b) 판정 및 근거를 progress.md §E.2 M8 절에 기록. AC-ENR-061을 REQ-DIAG-004로 재연결하고 매트릭스·집계·완료 정의의 건수를 **62 → 63 요구사항 / 73 → 74행**으로 일괄 갱신(인수 기준 61건은 불변) |
+
+- **재감사 필요**: 이 반영으로 `spec.md`·`plan.md`·`acceptance.md`가 다시 수정되어 plan-artifact hash가 변경되었다. plan-auditor 2회차 확인이 필요하며, 그 실행은 오케스트레이터가 수행한다.
+- **미검증 상태 불변**: AC-ENR-059 ~ 061과 REQ-DIAG-001 ~ 004는 여전히 **M8 미구현**이다. 이 반영은 문서 교정이며 구현 증거를 추가하지 않는다.
 
 ### 다음 단계 (v0.3.1 개정분)
 
