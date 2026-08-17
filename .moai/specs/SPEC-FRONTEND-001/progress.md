@@ -201,6 +201,45 @@ mode_selection: sub-agent (§G)
 
 **M1 완료 판정 (plan.md 기준)**: E1~E4 통과 + 오류 정규화 단위 테스트 통과 + **브라우저에서 `GET /api/courses`가 프록시 없이 교차 오리진으로 성공(콘솔 CORS 오류 0건, 오케스트레이터가 `claude-in-chrome`으로 직접 관측)** — **전부 충족**. M1 온전히 종결.
 
+### M2 — 세션 및 인증
+
+**대상 요구사항**: `REQ-SES-001`~`009`
+
+**산출물**:
+
+- `src/session/jwt.ts` — JWT 페이로드 base64url 디코드(서명 검증 없음, REQ-SES-008/AC-FE-035) + `isExpired` 판정
+- `src/session/tokenStorage.ts` — `sessionStorage` 연동(REQ-SES-004, §C.4). 테스트 주입 가능한 `TokenStorageLike` 인터페이스로 jsdom 없이 단위 테스트
+- `src/session/sessionState.ts` — 세션 상태 순수 전이 로직(`deriveSessionState`/`sessionReducer`) — 수립·복원·폐기 공통 규칙(design.md §A.5)
+- `src/session/sessionContextInstance.ts` / `src/session/SessionContext.tsx` / `src/session/useSession.ts` — React Context + `useReducer`(§C.6) 3분할(Fast Refresh용 `react/only-export-components` 린트 규칙 준수)
+- `src/session/LogoutButton.tsx` — 로그아웃 UI, REQ-SES-006 문구 제약("서버 무효화" 표현 없음, README.md 모델과 일치)
+- `src/routing/guardLogic.ts`(순수 판정) / `src/routing/guards.tsx`(`RequireAuth`/`RequireRole` 컴포넌트) — REQ-SES-009/REQ-ADM-002 가드. 보호 대상 화면은 아직 없음(M4~M6이 감쌀 예정, 위임 지시 범위)
+- `src/api/client.ts` 확장 — `subscribeToSessionExpired`/전역 401 통지(REQ-SES-007 단일 배선 지점). `errors.ts`의 401-우선 판정 순서는 그대로 소비만 함(재구현 없음)
+- `src/api/endpoints.ts` — `signup`/`login` 호출 함수(design.md §A.8 성장 지점, 14개 중 2개)
+- `src/pages/SignupPage.tsx` / `src/pages/LoginPage.tsx` — 회원가입·로그인 화면(라우터 비의존, 콜백 prop으로 화면 전환 위임)
+- `src/App.tsx` 재작성 — `SessionProvider` + 로그인/회원가입/인증됨 3-상태 수동 화면 전환(라우터 미도입 — M2 자체 화면은 둘 다 공개 화면이라 가드 미사용)
+
+**라우팅 범위 결정 (위임 지시 반영)**: plan.md §C.6이 React Router를 최종 채택했으나, 위임 지시가 "가드 컴포넌트/훅만 구현, 보호 화면은 아직 불필요"를 명시했으므로 M2는 React Router를 **도입하지 않았다** — 신규 의존성 0건. 실제 다중 경로 라우팅은 다중 화면 내비게이션이 실제로 필요해지는 이후 마일스톤(카탈로그/수강신청)이 도입한다.
+
+| AC / 항목 | 판정 | 근거 |
+|---|---|---|
+| E1 (`tsc -b --force`) | **PASS** | exit=0, 출력 없음 |
+| E2 (lint, oxlint) | **PASS** | exit=0, 출력 없음(경고 0건 — `react/only-export-components` 경고는 SessionContext를 3개 파일로 분할하여 해소) |
+| E3 (단위 테스트) | **PASS** | `npx vitest run` exit=0 — 7개 파일 **62건** 전부 통과(M1 24건 + M2 신규 38건) |
+| E4 (프로덕션 빌드) | **PASS** | `npm run build`(`tsc -b && vite build`) exit=0, `dist/` 산출 |
+| AC-FE-032 (선제 만료 판정, 자동) | **PASS** | `sessionState.test.ts` — exp 경과 토큰 → 서버 왕복 없이 즉시 `anonymous` |
+| AC-FE-033 (손상 토큰, 자동) | **PASS** | `jwt.test.ts`/`sessionState.test.ts` — 손상 토큰에 대해 예외 없이 `null`/`anonymous` |
+| AC-FE-035 (서명 미검증 주석 기록, 검사) | **PASS** | `jwt.ts` 상단 docstring + `@MX:REASON`에 "서명 검증 없음, 표시 목적 한정" 명시. `guardLogic.ts`/`guards.tsx`도 동일 취지 주석 |
+| REQ-SES-007 (401 전역 배선) | **PASS** | `client.test.ts` 신규 5건 — F1(code 있음)/F2(code 없음) 401 모두 통지, 404는 미통지, 성공은 미통지, `unsubscribe()` 이후 미통지 |
+| REQ-SES-009/REQ-ADM-002 (가드 판정) | **PASS** | `guardLogic.test.ts` 7건 — 세션 없음→`no-session`, 역할 불일치→`insufficient-role`, 일치→허용. 인증 가드와 역할 가드가 세션 부재 사유를 동일하게(`no-session`) 반환함을 별도 검증(design.md §A.6) |
+| REQ-SES-008/INV-FE-005 (역할 표시 전용 속성) | **PASS** | `jwt.test.ts` + `guardLogic.test.ts` — 서명 미검증으로 위조된 `role: ADMIN` 클레임이 `evaluateRoleGuard`를 구조적으로 통과함을 실증(가드가 보안 경계가 아님의 반증적 증명) |
+| AC-FE-003 (하드코딩 URL 0건, 신규 파일) | **PASS** | `grep -rn "http://\|https://" src --include="*.ts" --include="*.tsx"` (테스트 제외) → 0건 |
+| B4/B11 (AskUserQuestion 미사용) | **PASS** | `grep -rn "AskUserQuestion" src` → 0건 |
+| 작업 트리 범위 | **PASS** | `git status --porcelain frontend .moai/specs/SPEC-FRONTEND-001/progress.md` → `frontend/**`(신규 4디렉터리 + client.ts/client.test.ts/App.tsx 수정)만 변경. 백엔드(`src/**`)·다른 SPEC·`.moai/project/*`는 무변경 |
+
+**브라우저 수동 확인 — 미실시 (플래그)**: plan.md M2 완료 판정의 "브라우저에서 회원가입→로그인→새로고침 유지→탭 종료 후 소멸 확인"은 **이 커밋 시점에 실시되지 않았다.** 위 자동 테스트(단위 테스트 62건)는 메커니즘(디코드·저장·전이·가드·401 배선)만 검증하며, `REQ-NFR-007`/D8("자동 테스트만으로 완료를 선언하지 않는다")에 따라 실제 브라우저 시나리오(S1 앞부분: 회원가입→로그인→새로고침 유지→탭 종료 후 소멸)는 오케스트레이터의 `claude-in-chrome` 후속 확인이 필요하다 — M1의 CORS 실관측과 동일한 패턴. 이 항목은 M2를 "구현 완료(코드·자동 테스트 기준)"로, "수동 시나리오 확인"은 **미완**으로 분리해 기록한다.
+
+**커밋**: (M2 커밋은 이 progress.md 갱신과 함께 커밋됨 — SHA는 커밋 후 §E.3에서 백필)
+
 ---
 
 ## §E.3 Run-phase Audit-Ready Signal

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, ApiError } from './client'
+import { apiFetch, ApiError, subscribeToSessionExpired } from './client'
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -122,5 +122,73 @@ describe('apiFetch — base URL join tolerates an empty base (design.md §B.2)',
     await apiFetch('/api/courses')
     const [url] = fetchSpy.mock.calls[0] as [string]
     expect(url.endsWith('/api/courses')).toBe(true)
+  })
+})
+
+describe('apiFetch — 401 triggers the global session-expired notification (REQ-SES-007, M2)', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('notifies subscribers when a response is classified session-expired (401, F2 body — no code field)', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(401, { timestamp: 't', status: 401, error: 'Unauthorized', path: '/x' })) as unknown as typeof fetch
+    const listener = vi.fn()
+    const unsubscribe = subscribeToSessionExpired(listener)
+    try {
+      await expect(apiFetch('/api/enrollments/mine', { token: 'expired' })).rejects.toBeInstanceOf(ApiError)
+      expect(listener).toHaveBeenCalledTimes(1)
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('notifies subscribers for a 401 WITH a code field too (F1 INVALID_CREDENTIALS) — 401 always wins (plan.md §C.2)', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse(401, { code: 'INVALID_CREDENTIALS', message: 'bad creds' })) as unknown as typeof fetch
+    const listener = vi.fn()
+    const unsubscribe = subscribeToSessionExpired(listener)
+    try {
+      await expect(apiFetch('/api/auth/login', { method: 'POST' })).rejects.toBeInstanceOf(ApiError)
+      expect(listener).toHaveBeenCalledTimes(1)
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('does not notify subscribers for a non-401 error', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse(404, { code: 'COURSE_NOT_FOUND', message: 'x' })) as unknown as typeof fetch
+    const listener = vi.fn()
+    const unsubscribe = subscribeToSessionExpired(listener)
+    try {
+      await expect(apiFetch('/api/courses/999')).rejects.toBeInstanceOf(ApiError)
+      expect(listener).not.toHaveBeenCalled()
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('does not notify subscribers on success', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true })) as unknown as typeof fetch
+    const listener = vi.fn()
+    const unsubscribe = subscribeToSessionExpired(listener)
+    try {
+      await apiFetch('/api/courses')
+      expect(listener).not.toHaveBeenCalled()
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('stops notifying after the returned unsubscribe function is called', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(jsonResponse(401, {})) as unknown as typeof fetch
+    const listener = vi.fn()
+    const unsubscribe = subscribeToSessionExpired(listener)
+    unsubscribe()
+
+    await expect(apiFetch('/api/enrollments/mine', { token: 'expired' })).rejects.toBeInstanceOf(ApiError)
+    expect(listener).not.toHaveBeenCalled()
   })
 })

@@ -31,6 +31,34 @@ export class ApiError extends Error {
   }
 }
 
+// @MX:ANCHOR: [AUTO] REQ-SES-007의 전역 배선 지점 — 임의 API 호출이
+// session-expired로 분류되면(errors.ts 단일 판정 지점의 결과) 이 pub-sub을
+// 통해 통지한다. SessionContext.tsx가 유일한 구독자이며, 이 통지를 받아
+// 세션을 폐기한다. 화면마다 401을 개별 감지하지 않는다 — B1: 판정 순서
+// 자체는 여전히 errors.ts 하나만 소유하며, 이 모듈은 그 결과(classification)를
+// 소비만 한다.
+// @MX:REASON: plan.md §D — "401 처리 흐름을 전역 효과로 배선하고 화면마다
+// 임시방편으로 중복 구현하지 않는다"는 위임 제약을 충족하는 유일한 지점이다.
+type SessionExpiredListener = () => void
+const sessionExpiredListeners = new Set<SessionExpiredListener>()
+
+/**
+ * session-expired 통지를 구독한다. 반환된 함수를 호출하면 구독을 해제한다.
+ * `SessionContext.tsx`가 마운트 시 구독하고 언마운트 시 해제한다.
+ */
+export function subscribeToSessionExpired(listener: SessionExpiredListener): () => void {
+  sessionExpiredListeners.add(listener)
+  return () => {
+    sessionExpiredListeners.delete(listener)
+  }
+}
+
+function notifySessionExpired(): void {
+  for (const listener of sessionExpiredListeners) {
+    listener()
+  }
+}
+
 /**
  * fetch 래퍼. 실패는 항상 {@link ApiError}로 던지며, 오류 정규화(REQ-ERR-002
  * 단일 지점)를 이 함수 하나만 통과한다 — 호출자는 원본 `Response`나 바디를
@@ -64,7 +92,11 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
 
   if (!response.ok) {
     const errorBody = await safeParseJson(response)
-    throw new ApiError(normalizeResponseError(response.status, errorBody))
+    const normalized = normalizeResponseError(response.status, errorBody)
+    if (normalized.classification === 'session-expired') {
+      notifySessionExpired()
+    }
+    throw new ApiError(normalized)
   }
 
   if (response.status === 204) {
