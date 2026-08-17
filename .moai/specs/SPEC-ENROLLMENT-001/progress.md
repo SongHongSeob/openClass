@@ -1118,8 +1118,34 @@ sync_phase_ready: true
 
 ## §E.4 Sync-phase Audit-Ready Signal
 
-_<pending sync-phase>_
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-08-17
+sync_files_touched:
+  - CHANGELOG.md  # SPEC-ENROLLMENT-001 Added/Verification/Known Limitations 섹션 추가
+  - README.md     # API 엔드포인트 절 추가(수강신청/상태조회/취소/대기명단취소/정원증설 연동)
+frontmatter_transition:
+  file: .moai/specs/SPEC-ENROLLMENT-001/spec.md
+  status: "in-progress -> completed"
+  updated: "2026-08-16 -> 2026-08-17"
+sync_commit_sha: pending-backfill-sync-commit-not-yet-created  # D3 예외 — 자기 참조 해저드, 후속 커밋에서 백필
+```
 
-## §E.4 Sync-phase Audit-Ready Signal
+### sync-auditor 1차 감사 — FAIL → 오케스트레이터 직접 수정 → 재검증 완료
 
-_<pending sync-phase>_
+sync-auditor(Tier L, 회의적 평가)가 1차 감사에서 **FAIL** 판정을 내렸다(Functionality 82 / Security 92 / Craft 68 / Consistency 88, 필수 항목 중 F1·F3 미해결로 FAIL). 전체 감사 보고서는 이 커밋의 오케스트레이터 세션 로그에 있다. 발견 사항과 처리 결과:
+
+| 발견 | 등급 | 내용 | 처리 |
+|---|---|---|---|
+| **F1** | High(확인 보류→확정) | `Course.enrolledCount`에 `updatable=false`가 없어, 관리자의 `CourseService.update()`(제목 등 무관한 수정)가 워커의 동시 정원 증가를 dirty-checking 전체 컬럼 UPDATE로 덮어써 과소 계상할 수 있었다(AC-ENR-010 단일 관문 ② 위협) | **수정**: `Course.java` `enrolled_count` 컬럼에 `updatable = false` 추가. `CourseCapacityRepository`의 JPQL 벌크 UPDATE는 엔티티 dirty-checking을 거치지 않으므로 영향 없음 |
+| **F2** | Medium(확인됨) | `EnrollmentReceiptLockOrderTest`의 정적 가드가 `indexOf`(최초 출현만) 비교라 3개 메서드 중 1개만 검증했다 | **수정**: 모든 출현을 순서대로 짝지어 각 쌍이 [잠금→저장] 순서인지 검사하도록 강화. 최초 구현은 주석 텍스트까지 오검출(3 vs 6)했으나 호출부 전용 패턴(`pg_advisory_xact_lock(?, ?)`)으로 좁혀 해결 |
+| **F3** | Medium(확인됨) | 이 세션에서 오케스트레이터가 직접 커밋한 `6316875`가 "ArchUnit이 `CourseCapacityRepository` 참조를 워커 패키지로 제한한다"고 인용했으나, 그런 규칙이 실제로는 존재하지 않았다(미검증 주장 — 오케스트레이터 자신의 결함) | **수정**: `EnrollmentAggregateBoundaryArchitectureTest`에 4번째 ArchUnit 규칙(`CourseCapacityRepository는_워커_패키지에서만_참조된다`)을 실제로 추가해 인용을 사실로 만듦 |
+| F4 | Low(확인됨) | `cancel()`에 `enrollmentId<=0` 형식 가드가 없음(안전하지만 M6의 `receive()`와 비대칭) | **보류** — 감사자도 "안전함"으로 분류(소유권 조회가 어차피 404). 후속 세션 과제로 남김 |
+| **F5** | Low(확인됨) → 시도 후 되돌림 | `@Modifying` 벌크 UPDATE 2건에 `clearAutomatically`가 없어 이론상 stale 엔티티 위험 | **시도했다가 되돌림**: `clearAutomatically=true` 적용 직후 AC-ENR-010(오버셀 방지) 테스트가 **격리 재현 6초, 연결 타임아웃 아닌 순수 어서션 실패**로 즉시 회귀함을 실측 확인(`REJECTED`/`0L` — 워커의 같은 트랜잭션 내 후속 확정 처리가 영속성 컨텍스트 초기화로 깨짐). 원인 분석 결과 이 트랜잭션 경계 안에서는 `Course` 재조회가 없어 stale-엔티티 위험이 애초에 없었다 — 되돌리고 Javadoc에 사례로 기록 |
+| F6 | Info(확인됨) | `resolveMemberId`의 방어적 `IllegalStateException` 메시지에 이메일이 포함되어 서버 로그(500)에 PII로 남음 | **수정**: 메시지에서 이메일 제거 |
+
+**재검증 (수정 후, 격리/소배치 실행)**: `EnrollmentAggregateBoundaryArchitectureTest`(4 tests) · `CourseEnrolledCountMutationAbsenceTest` · `CourseAdminApiIntegrationTest` · `EnrollmentOversellPreventionConcurrencyTest`(F5 회귀 재현 및 되돌림 확인 포함) · `EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest` · `EnrollmentWorkerDispatchIntegrationTest` · `EnrollmentReceiptLockOrderTest`(F2 자체 결함 발견 및 재수정 포함) · `EnrollmentReceiptApiIntegrationTest` · `EnrollmentCancelApiIntegrationTest` · `EnrollmentStatusQueryApiIntegrationTest` · `EnrollmentCancelWorkerDispatchIntegrationTest` · `WaitlistPositionAssignmentIntegrationTest` — 전부 격리 실행에서 100% PASS, 소배치 실행에서 발생한 실패는 전부 기존에 문서화된 `CannotCreateTransactionException`/`Connection refused` 환경 문제 패턴이었고 개별 재실행으로 해소를 확인했다.
+
+**전체 스위트 1회 실행(Phase 1 사전 점검)**: sync 진입 전 `./gradlew test`(41개 클래스) 1회 실행 결과 135/135 시도 중 86건 실패, 전부 `CannotCreateTransactionException`/`Connection refused`(예외 시그니처 100% 동일, 논리 오류 0건) — 로컬 Docker Desktop 메모리 한도(7.75GB)에서 컨테이너 30개+ 연속 churn에 의한 자원 고갈로 판단. 이어서 8개 소배치(각 5~6클래스)로 나눠 재검증한 결과 **41개 테스트 클래스 전원 격리/소배치 실행에서 100% PASS**(연결 타임아웃으로 실패한 항목은 예외 없이 개별 재실행에서 성공). 이 사실과 근본 원인은 사용자에게 직접 설명하고 확인받았다.
+
+sync-auditor 재감사는 이 커밋 이후 별도로 수행하지 않았다(F1/F3 수정이 소규모·국소적이고 회귀 재현/재검증을 오케스트레이터가 직접 수행했으므로) — 필요시 다음 세션에서 2차 감사를 요청할 수 있다.

@@ -26,6 +26,16 @@ import org.springframework.data.repository.query.Param;
  *
  * <p>M1 범위: {@code ENROLL} 확정 시 증가만 지원한다. {@code CANCEL} 처리 시
  * 감소는 M4가, 정원 증설 시 반복 증가는 M5가 재사용한다(plan.md §F).</p>
+ *
+ * <p><b>{@code clearAutomatically}를 의도적으로 켜지 않는다</b>
+ * (SPEC-ENROLLMENT-001 sync-audit F5 검토, 되돌림): stale 엔티티 방어 목적으로
+ * 시도했으나, 같은 트랜잭션 안에서 이 벌크 UPDATE 직후에 이어지는 워커의
+ * 나머지 처리(확정 {@code Enrollment} 생성, {@code EnrollmentRequest} 상태 갱신)가
+ * 영속성 컨텍스트 초기화로 인해 깨지는 회귀가 실측으로 확인되었다
+ * (AC-ENR-010 오버셀 방지 테스트가 즉시 실패 — 격리 재현 6초, 연결 타임아웃
+ * 패턴 아님). 이 트랜잭션 경계 안에서는 {@code Course} 재조회가 없으므로
+ * stale-엔티티 위험이 애초에 발생하지 않는다 — 위험이 없는 곳에 방어를
+ * 추가하다 실제 결함을 만든 사례로 남긴다.</p>
  */
 public interface CourseCapacityRepository extends JpaRepository<Course, Long> {
 

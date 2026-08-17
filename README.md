@@ -59,3 +59,11 @@ JWT 액세스 토큰 기반 인증. 공개 엔드포인트 2개(`POST /api/auth/
 `SPEC-ENROLLMENT-001` design.md §6의 산출표(이론 처리량 1,000건/초)와
 일치한다. 테스트 프로파일은 `scheduler-enabled=false`로 자동 폴링을 끄고
 테스트가 직접 큐를 구동한다.
+
+### API 엔드포인트
+
+- `POST /api/courses/{courseId}/enrollments` — 수강신청 접수(즉시 확정 아님, 큐 적재).
+- `GET /api/enrollment-requests/{requestId}` — 접수 상태 조회(요청자 소유권 범위, 대기 순번 노출).
+- `DELETE /api/enrollments/{enrollmentId}` — 확정된 수강신청 취소.
+- `DELETE /api/waitlist-entries/{entryId}` — 대기명단 항목 취소.
+- 정원 증설은 기존 `PATCH /api/admin/courses/{id}` 관리자 강좌 수정 엔드포인트를 통해 처리되며, 증설 시 대기명단 자동 승격이 트리거된다.

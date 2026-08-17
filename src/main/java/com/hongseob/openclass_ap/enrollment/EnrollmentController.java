@@ -99,8 +99,11 @@ public class EnrollmentController {
      */
     private Long resolveMemberId(Authentication authentication) {
         String email = authentication.getName();
+        // sync-audit F6 — 이메일을 예외 메시지에 담지 않는다. 이 분기는 이론상
+        // 도달 불가능한 방어 코드(유효한 토큰은 항상 실제 회원에게 발급됨)이지만,
+        // 도달할 경우 서버 로그에 500 스택트레이스로 기록되므로 PII를 남기지 않는다.
         return memberRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalStateException("인증된 토큰의 회원을 찾을 수 없습니다: " + email))
+                .orElseThrow(() -> new IllegalStateException("인증된 토큰의 회원을 찾을 수 없습니다"))
                 .getId();
     }
 }

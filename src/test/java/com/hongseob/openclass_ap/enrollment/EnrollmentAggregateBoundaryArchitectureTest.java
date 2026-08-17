@@ -52,6 +52,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * EnrollmentQueueBoundaryArchitectureTest} "M3 예외 추가 근거" 참고). {@code
  * Enrollment} 엔티티 자체는 여전히 워커 패키지 밖에서 참조할 수 없으므로
  * 아래 3번째 테스트는 그대로 유지한다.</p>
+ *
+ * <p><b>4번째 테스트 추가 근거</b> (SPEC-ENROLLMENT-001 sync-audit F3): {@code
+ * course.CourseEnrolledCountMutationAbsenceTest}가 {@code
+ * CourseCapacityRepository.java}를 제외 목록에 추가하며 "ArchUnit이 이 경계를
+ * 별도로 강제한다"고 인용했으나, 그 시점에는 실제로 그런 규칙이 존재하지
+ * 않았다(미검증 주장). 아래 4번째 테스트가 그 인용을 사실로 만든다 — {@code
+ * enrolled_count}를 변경하는 유일한 합법 경로(REQ-WRK-002)가 워커 패키지 밖의
+ * 임의 Spring 빈 주입으로 우회되지 않음을 구조적으로 보장한다.</p>
  */
 class EnrollmentAggregateBoundaryArchitectureTest {
 
@@ -110,6 +118,20 @@ class EnrollmentAggregateBoundaryArchitectureTest {
                 .and().doNotHaveFullyQualifiedName("com.hongseob.openclass_ap.enrollment.Enrollment")
                 .should().dependOnClassesThat()
                 .haveFullyQualifiedName("com.hongseob.openclass_ap.enrollment.Enrollment");
+
+        rule.check(CLASSES);
+    }
+
+    // sync-audit F3 — CourseCapacityRepository는 enrolled_count를 변경하는
+    // 유일한 합법 경로(REQ-WRK-002)이므로 워커 패키지 밖에서 참조되면 안 된다.
+    @Test
+    void CourseCapacityRepository는_워커_패키지에서만_참조된다() {
+        ArchRule rule = noClasses()
+                .that().resideOutsideOfPackage("..enrollment.worker..")
+                .and().doNotHaveFullyQualifiedName(
+                        "com.hongseob.openclass_ap.enrollment.worker.CourseCapacityRepository")
+                .should().dependOnClassesThat()
+                .haveFullyQualifiedName("com.hongseob.openclass_ap.enrollment.worker.CourseCapacityRepository");
 
         rule.check(CLASSES);
     }
