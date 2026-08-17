@@ -1528,5 +1528,5 @@ m8_scope_closed: "AC-ENR-059~061 (3건) — Step A 진단 로깅 + Step B 근본
 known_residual_risks_carried_forward:
   - "M8 진단 로깅이 실제로 잡아낸 프로덕션 실패의 근본 원인은 이 로컬 개발 DB에 국한된 인프라 상태(이질적 course_term 스키마 객체) — 다른 환경에서 재현되지 않을 수 있음"
   - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4~M7) 미확보 — §E.3 known_residual_risks 참고, M8은 커버리지 영향 없음(Step A 1개 catch 블록 로깅 추가만)"
-sync_commit_sha: pending-backfill-M8  # 이 커밋 자신의 SHA는 자기 참조 해저드로 이 커밋 안에서 알 수 없음 — 후속 커밋에서 백필
+sync_commit_sha: ebe321840434a6e5163e2180ca4f5caf1e846817  # M8 sync 커밋(백필 완료)
 ```
