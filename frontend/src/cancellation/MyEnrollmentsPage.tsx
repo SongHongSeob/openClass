@@ -12,6 +12,9 @@ import { ApiError } from '../api/client'
 import type { EnrollmentListItem } from '../api/types'
 import { saveReceiptTimestamp } from '../enrollment/receiptStorage'
 import { describeCancelError, resolveEnrollmentCancelTarget, toListView } from './cancellationModel'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
 
 export interface MyEnrollmentsPageProps {
   token: string
@@ -63,28 +66,38 @@ export function MyEnrollmentsPage({ token }: MyEnrollmentsPageProps) {
   }
 
   return (
-    <section>
-      <h2>내 수강신청</h2>
-      {cancelError !== null && <p role="alert">{cancelError}</p>}
-      {state.status === 'loading' && <p>불러오는 중…</p>}
-      {state.status === 'error' && <p role="alert">{state.message}</p>}
+    <section className="flex flex-col gap-4">
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">내 수강신청</h2>
+      {cancelError !== null && <Alert role="alert" tone="error">{cancelError}</Alert>}
+      {state.status === 'loading' && <p className="text-sm text-neutral-500">불러오는 중…</p>}
+      {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
       {state.status === 'loaded' &&
         (() => {
           const view = toListView(state.items)
           if (view.status === 'empty') {
             // REQ-CNL-007 — 0건은 오류가 아니라 "보유 내역 없음"이다. 신규
             // 회원의 첫 진입이 항상 이 상태다.
-            return <p>보유 내역 없음 — 아직 신청한 수강신청이 없습니다.</p>
+            return <p className="text-sm text-neutral-500">보유 내역 없음 — 아직 신청한 수강신청이 없습니다.</p>
           }
           return (
-            <ul>
+            <ul className="flex flex-col gap-3">
               {/* REQ-CNL-008 — 응답 순서를 그대로 표시한다(재정렬 금지). */}
               {view.items.map((item) => (
                 <li key={item.enrollmentId}>
-                  {item.courseTitle} — {item.status} · 신청일 {item.enrolledAt}{' '}
-                  <button type="button" disabled={cancellingId === item.enrollmentId} onClick={() => void handleCancel(item)}>
-                    취소
-                  </button>
+                  <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <span className="text-sm text-neutral-700 dark:text-neutral-300">
+                      {item.courseTitle} — {item.status} · 신청일 {item.enrolledAt}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={cancellingId === item.enrollmentId}
+                      onClick={() => void handleCancel(item)}
+                    >
+                      취소
+                    </Button>
+                  </Card>
                 </li>
               ))}
             </ul>

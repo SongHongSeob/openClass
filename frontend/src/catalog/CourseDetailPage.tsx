@@ -14,6 +14,9 @@ import type { Course } from '../api/types'
 import { isEnrollmentBlocked } from './catalogModel'
 import { saveReceiptTimestamp } from '../enrollment/receiptStorage'
 import { useSession } from '../session/useSession'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
 
 export interface CourseDetailPageProps {
   courseId: number
@@ -74,39 +77,39 @@ export function CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) {
   }
 
   return (
-    <section>
-      <button type="button" onClick={onBack}>
+    <section className="flex flex-col gap-4">
+      <Button type="button" variant="ghost" className="h-auto w-fit px-0" onClick={onBack}>
         ← 목록으로
-      </button>
-      {state.status === 'loading' && <p>불러오는 중…</p>}
-      {state.status === 'error' && <p role="alert">{state.message}</p>}
+      </Button>
+      {state.status === 'loading' && <p className="text-sm text-neutral-500">불러오는 중…</p>}
+      {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
       {state.status === 'loaded' && (
-        <>
-          <h2>{state.course.title}</h2>
-          <p>{state.course.description}</p>
-          <p>
+        <Card className="flex flex-col gap-3">
+          <h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">{state.course.title}</h2>
+          <p className="text-neutral-700 dark:text-neutral-300">{state.course.description}</p>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
             정원 {state.course.capacity} · 확정 인원 {state.course.enrolledCount} · 잔여 정원{' '}
             {state.course.remainingCapacity}
           </p>
-          <p>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
             모집 기간 {state.course.startsAt} ~ {state.course.endsAt}
           </p>
           {isEnrollmentBlocked(state.course.status) ? (
-            <p role="status">마감된 강좌입니다. 신청을 받지 않습니다.</p>
+            <Alert role="status" tone="info">마감된 강좌입니다. 신청을 받지 않습니다.</Alert>
           ) : session.status === 'authenticated' ? (
             <>
-              <button type="button" onClick={() => void handleEnroll()} disabled={enrolling}>
+              <Button type="button" onClick={() => void handleEnroll()} disabled={enrolling} className="w-fit">
                 {enrolling ? '접수 중…' : '수강신청'}
-              </button>
-              {enrollError !== null && <p role="alert">{enrollError}</p>}
+              </Button>
+              {enrollError !== null && <Alert role="alert" tone="error">{enrollError}</Alert>}
             </>
           ) : (
             // REQ-SES-009 — 인증이 필요한 조작은 세션 없이 진입을 허용하지
             // 않는다. 상세 열람 자체는 공개이므로(REQ-CAT-006) 화면 렌더링을
             // 막지 않고, 신청 조작만 로그인 안내로 대체한다.
-            <p role="status">로그인 후 신청할 수 있습니다.</p>
+            <Alert role="status" tone="info">로그인 후 신청할 수 있습니다.</Alert>
           )}
-        </>
+        </Card>
       )}
     </section>
   )

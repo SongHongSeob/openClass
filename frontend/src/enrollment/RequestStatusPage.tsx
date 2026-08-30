@@ -10,6 +10,9 @@ import { loadReceiptTimestamp, saveReceiptTimestamp } from './receiptStorage'
 import { computePollingInterval, isTerminalStatus } from './pollingSchedule'
 import { selectTerminalMessage } from './messages'
 import { ApiError } from '../api/client'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
 
 export interface RequestStatusPageProps {
   requestId: number
@@ -50,47 +53,49 @@ export function RequestStatusPage({ requestId, token }: RequestStatusPageProps) 
   const autoPollingHalted = !isTerminal && scheduleAtCutoff
 
   if (query.isPending) {
-    return <p>불러오는 중…</p>
+    return <p className="text-sm text-neutral-500">불러오는 중…</p>
   }
 
   return (
-    <section>
-      <h2>수강신청 처리 현황</h2>
-      <p>요청 번호: {requestId}</p>
+    <section className="flex flex-col gap-3">
+      <Card className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">수강신청 처리 현황</h2>
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">요청 번호: {requestId}</p>
 
-      {status === undefined && query.isError && (
-        <p role="alert">
-          {query.error instanceof ApiError ? query.error.normalized.message : '상태를 불러오지 못했습니다.'}
-        </p>
-      )}
+        {status === undefined && query.isError && (
+          <Alert role="alert" tone="error">
+            {query.error instanceof ApiError ? query.error.normalized.message : '상태를 불러오지 못했습니다.'}
+          </Alert>
+        )}
 
-      {status === 'PENDING' && (
-        // REQ-ENR-002 — 202 직후에도, 폴링 중에도 "확정"을 뜻하는 표현을
-        // 쓰지 않는다. "접수됨 / 처리 중" 계열만 사용한다.
-        <p role="status">접수됨 — 처리 중입니다. 잠시만 기다려 주세요.</p>
-      )}
+        {status === 'PENDING' && (
+          // REQ-ENR-002 — 202 직후에도, 폴링 중에도 "확정"을 뜻하는 표현을
+          // 쓰지 않는다. "접수됨 / 처리 중" 계열만 사용한다.
+          <Alert role="status" tone="info">접수됨 — 처리 중입니다. 잠시만 기다려 주세요.</Alert>
+        )}
 
-      {isTerminal && status !== undefined && (
-        <p role="status">{selectTerminalMessage(status)}</p>
-      )}
+        {isTerminal && status !== undefined && (
+          <Alert role="status" tone="info">{selectTerminalMessage(status)}</Alert>
+        )}
 
-      {status === 'WAITLISTED' && query.data?.waitlistPosition != null && (
-        // REQ-ENR-008 — 대기 순번을 함께 표시한다.
-        <p>대기 순번: {query.data.waitlistPosition}번째</p>
-      )}
+        {status === 'WAITLISTED' && query.data?.waitlistPosition != null && (
+          // REQ-ENR-008 — 대기 순번을 함께 표시한다.
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">대기 순번: {query.data.waitlistPosition}번째</p>
+        )}
 
-      {autoPollingHalted && (
-        // REQ-ENR-007 — 상한 도달 시 자동 폴링을 중단하고 수동 재확인 수단을
-        // 제공한다. requestId는 계속 화면에 남아 있으므로 유실되지 않는다.
-        <div>
-          <p role="status">
-            처리가 예상보다 오래 걸리고 있습니다. 자동 확인이 중단되었습니다 — 아래 버튼으로 다시 확인해 주세요.
-          </p>
-          <button type="button" onClick={() => void query.refetch()}>
-            다시 확인
-          </button>
-        </div>
-      )}
+        {autoPollingHalted && (
+          // REQ-ENR-007 — 상한 도달 시 자동 폴링을 중단하고 수동 재확인 수단을
+          // 제공한다. requestId는 계속 화면에 남아 있으므로 유실되지 않는다.
+          <div className="flex flex-col gap-2">
+            <Alert role="status" tone="info">
+              처리가 예상보다 오래 걸리고 있습니다. 자동 확인이 중단되었습니다 — 아래 버튼으로 다시 확인해 주세요.
+            </Alert>
+            <Button type="button" className="w-fit" onClick={() => void query.refetch()}>
+              다시 확인
+            </Button>
+          </div>
+        )}
+      </Card>
     </section>
   )
 }

@@ -7,6 +7,10 @@ import { getCourses } from '../api/endpoints'
 import { ApiError } from '../api/client'
 import type { Course } from '../api/types'
 import { computePageControls } from './catalogModel'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 
 const PAGE_SIZE = 10
 
@@ -50,35 +54,42 @@ export function CourseListPage({ onSelectCourse }: CourseListPageProps) {
   }, [page])
 
   return (
-    <section>
-      <h2>강좌 목록</h2>
-      {state.status === 'loading' && <p>불러오는 중…</p>}
-      {state.status === 'error' && <p role="alert">{state.message}</p>}
-      {state.status === 'loaded' && controls.isEmpty && <p>표시할 강좌가 없습니다.</p>}
+    <section className="flex flex-col gap-4">
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">강좌 목록</h2>
+      {state.status === 'loading' && <p className="text-sm text-neutral-500">불러오는 중…</p>}
+      {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
+      {state.status === 'loaded' && controls.isEmpty && (
+        <p className="text-sm text-neutral-500">표시할 강좌가 없습니다.</p>
+      )}
       {state.status === 'loaded' && !controls.isEmpty && (
-        <ul>
+        <ul className="flex flex-col gap-3">
           {state.items.map((course) => (
             <li key={course.id}>
-              <button type="button" onClick={() => onSelectCourse(course.id)}>
-                {course.title}
-              </button>
-              {' — '}
-              정원 {course.capacity} · 확정 {course.enrolledCount} · 잔여 {course.remainingCapacity} · {course.status}
+              <Card className="flex flex-col gap-1 p-4">
+                <Button type="button" variant="ghost" className="h-auto justify-start px-0 text-left font-semibold" onClick={() => onSelectCourse(course.id)}>
+                  {course.title}
+                </Button>
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  {' — '}
+                  정원 {course.capacity} · 확정 {course.enrolledCount} · 잔여 {course.remainingCapacity} ·{' '}
+                  <Badge variant={course.status === 'CLOSED' ? 'neutral' : 'accent'}>{course.status}</Badge>
+                </p>
+              </Card>
             </li>
           ))}
         </ul>
       )}
       {state.status === 'loaded' && !controls.isEmpty && (
-        <p>
-          <button type="button" disabled={!controls.hasPrevious} onClick={() => setPage((current) => current - 1)}>
+        <p className="flex items-center gap-3 text-sm text-neutral-600 dark:text-neutral-400">
+          <Button type="button" variant="outline" size="sm" disabled={!controls.hasPrevious} onClick={() => setPage((current) => current - 1)}>
             이전
-          </button>
-          {' '}
-          {controls.currentPage + 1} / {Math.max(controls.totalPages, 1)}
-          {' '}
-          <button type="button" disabled={!controls.hasNext} onClick={() => setPage((current) => current + 1)}>
+          </Button>
+          <span>
+            {controls.currentPage + 1} / {Math.max(controls.totalPages, 1)}
+          </span>
+          <Button type="button" variant="outline" size="sm" disabled={!controls.hasNext} onClick={() => setPage((current) => current + 1)}>
             다음
-          </button>
+          </Button>
         </p>
       )}
     </section>

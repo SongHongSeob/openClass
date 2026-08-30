@@ -7,6 +7,10 @@ import { closeCourse, getCourses } from '../api/endpoints'
 import { ApiError } from '../api/client'
 import type { Course } from '../api/types'
 import { computePageControls } from '../catalog/catalogModel'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 
 const PAGE_SIZE = 10
 
@@ -63,45 +67,61 @@ export function AdminCoursesPage({ token, onCreateCourse, onEditCourse }: AdminC
   }
 
   return (
-    <section>
-      <h2>관리자 — 강좌 관리</h2>
-      <button type="button" onClick={onCreateCourse}>
-        강좌 생성
-      </button>
-      {actionError && <p role="alert">{actionError}</p>}
-      {state.status === 'loading' && <p>불러오는 중…</p>}
-      {state.status === 'error' && <p role="alert">{state.message}</p>}
-      {state.status === 'loaded' && controls.isEmpty && <p>등록된 강좌가 없습니다.</p>}
+    <section className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">관리자 — 강좌 관리</h2>
+        <Button type="button" onClick={onCreateCourse}>
+          강좌 생성
+        </Button>
+      </div>
+      {actionError && <Alert role="alert" tone="error">{actionError}</Alert>}
+      {state.status === 'loading' && <p className="text-sm text-neutral-500">불러오는 중…</p>}
+      {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
+      {state.status === 'loaded' && controls.isEmpty && (
+        <p className="text-sm text-neutral-500">등록된 강좌가 없습니다.</p>
+      )}
       {state.status === 'loaded' && !controls.isEmpty && (
-        <ul>
+        <ul className="flex flex-col gap-3">
           {state.items.map((course) => (
             <li key={course.id}>
-              {course.title} — 정원 {course.capacity} · 확정 {course.enrolledCount} · {course.status}
-              {' '}
-              <button type="button" onClick={() => onEditCourse(course.id)}>
-                수정
-              </button>
-              {/* REQ-ADM-009 — 마감된 강좌를 다시 마감할 조작은 노출하지 않는다. */}
-              {course.status !== 'CLOSED' && (
-                <button type="button" disabled={closingId === course.id} onClick={() => handleClose(course.id)}>
-                  마감
-                </button>
-              )}
+              <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <span className="text-sm text-neutral-700 dark:text-neutral-300">
+                  {course.title} — 정원 {course.capacity} · 확정 {course.enrolledCount} ·{' '}
+                  <Badge variant={course.status === 'CLOSED' ? 'neutral' : 'accent'}>{course.status}</Badge>
+                </span>
+                <span className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => onEditCourse(course.id)}>
+                    수정
+                  </Button>
+                  {/* REQ-ADM-009 — 마감된 강좌를 다시 마감할 조작은 노출하지 않는다. */}
+                  {course.status !== 'CLOSED' && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={closingId === course.id}
+                      onClick={() => handleClose(course.id)}
+                    >
+                      마감
+                    </Button>
+                  )}
+                </span>
+              </Card>
             </li>
           ))}
         </ul>
       )}
       {state.status === 'loaded' && !controls.isEmpty && (
-        <p>
-          <button type="button" disabled={!controls.hasPrevious} onClick={() => setPage((current) => current - 1)}>
+        <p className="flex items-center gap-3 text-sm text-neutral-600 dark:text-neutral-400">
+          <Button type="button" variant="outline" size="sm" disabled={!controls.hasPrevious} onClick={() => setPage((current) => current - 1)}>
             이전
-          </button>
-          {' '}
-          {controls.currentPage + 1} / {Math.max(controls.totalPages, 1)}
-          {' '}
-          <button type="button" disabled={!controls.hasNext} onClick={() => setPage((current) => current + 1)}>
+          </Button>
+          <span>
+            {controls.currentPage + 1} / {Math.max(controls.totalPages, 1)}
+          </span>
+          <Button type="button" variant="outline" size="sm" disabled={!controls.hasNext} onClick={() => setPage((current) => current + 1)}>
             다음
-          </button>
+          </Button>
         </p>
       )}
     </section>

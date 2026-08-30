@@ -14,6 +14,9 @@ import {
   resolveWaitlistCancelTarget,
   toListView,
 } from './cancellationModel'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Alert } from '@/components/ui/alert'
 
 export interface MyWaitlistPageProps {
   token: string
@@ -65,33 +68,39 @@ export function MyWaitlistPage({ token }: MyWaitlistPageProps) {
   }
 
   return (
-    <section>
-      <h2>내 대기명단</h2>
-      {cancelError !== null && <p role="alert">{cancelError}</p>}
-      {state.status === 'loading' && <p>불러오는 중…</p>}
-      {state.status === 'error' && <p role="alert">{state.message}</p>}
+    <section className="flex flex-col gap-4">
+      <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">내 대기명단</h2>
+      {cancelError !== null && <Alert role="alert" tone="error">{cancelError}</Alert>}
+      {state.status === 'loading' && <p className="text-sm text-neutral-500">불러오는 중…</p>}
+      {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
       {state.status === 'loaded' &&
         (() => {
           const view = toListView(state.items)
           if (view.status === 'empty') {
             // REQ-CNL-007 — 0건은 오류가 아니라 "보유 내역 없음"이다.
-            return <p>보유 내역 없음 — 아직 대기 중인 강좌가 없습니다.</p>
+            return <p className="text-sm text-neutral-500">보유 내역 없음 — 아직 대기 중인 강좌가 없습니다.</p>
           }
           return (
-            <ul>
+            <ul className="flex flex-col gap-3">
               {/* REQ-CNL-008 — 응답 순서를 그대로 표시한다(재정렬 금지). */}
               {view.items.map((item) => (
                 <li key={item.waitlistEntryId}>
-                  {/* REQ-CNL-010 / INV-FE-011 — position은 courseTitle과 나란히
-                      표시하는 단일 문구로만 렌더링한다(단독 표시 금지). */}
-                  {formatWaitlistPositionLabel(item)}{' '}
-                  <button
-                    type="button"
-                    disabled={cancellingId === item.waitlistEntryId}
-                    onClick={() => void handleCancel(item)}
-                  >
-                    취소
-                  </button>
+                  <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    {/* REQ-CNL-010 / INV-FE-011 — position은 courseTitle과 나란히
+                        표시하는 단일 문구로만 렌더링한다(단독 표시 금지). */}
+                    <span className="text-sm text-neutral-700 dark:text-neutral-300">
+                      {formatWaitlistPositionLabel(item)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={cancellingId === item.waitlistEntryId}
+                      onClick={() => void handleCancel(item)}
+                    >
+                      취소
+                    </Button>
+                  </Card>
                 </li>
               ))}
             </ul>

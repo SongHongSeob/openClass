@@ -2,6 +2,7 @@
 // 유일한 구현 지점. 문구는 서버 측 무효화를 암시하지 않는다.
 
 import { useSession } from './useSession'
+import { Button } from '@/components/ui/button'
 
 // REQ-SES-006 / INV-FE-004 — "로그아웃되었습니다(서버 무효화)" 같은 표현을
 // 사용하지 않는다. 백엔드에 denylist가 없으므로(README.md), 로그아웃은
@@ -18,11 +19,11 @@ export function LogoutButton() {
   }
 
   return (
-    <div>
-      <button type="button" onClick={discardSession}>
+    <div className="flex flex-col gap-2">
+      <Button type="button" variant="outline" size="sm" className="w-fit" onClick={discardSession}>
         로그아웃
-      </button>
-      <p>{LOGOUT_NOTICE}</p>
+      </Button>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{LOGOUT_NOTICE}</p>
     </div>
   )
 }
