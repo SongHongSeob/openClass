@@ -891,3 +891,253 @@ grep -oE '\*\*AC-FE-[0-9]+[a-z]?\*\*' acceptance.md | grep -oE 'AC-FE-[0-9]+[a-z
   로컬 개발 전용 값만 담겨 있음을 확인했다(`VITE_API_BASE_URL=http://localhost:8080`).
 
 ---
+
+## §I sync-auditor 2차 감사 (재검증, 2026-08-30)
+
+> `§H` 1차 감사(FAIL, 조화평균 73.2)의 PR 차단 3건(F1·F2·F3)만을 대상으로 한
+> **표적 재검증**이다. 86건 AC 매트릭스 전수 재실행이 아니며, 재판정하지 않은
+> 항목은 `§H`의 판정을 그대로 승계한다. 감사자는 `41f3531`·`f4d17df`의 커밋
+> 메시지 주장을 액면 그대로 신뢰하지 않고 독립 재실행으로 확인했다.
+
+### I.1 재검증 범위와 기준선
+
+| 항목 | 값 |
+|---|---|
+| 1차 감사 시점 HEAD | `b98ab93` |
+| 2차 감사 시점 HEAD | `41f3531` (origin과 동기, `git rev-list --count --left-right origin/main...HEAD` → `0 19`) |
+| 대상 | F1(Blocker) · F2(High) · F3(Medium) — 3건 |
+| 명시적 범위 밖(유예) | F4 · F5 · F6 · F7 · F8 · F9, UNVERIFIED `[수동]` 15건 |
+| 브랜치 델타 | `git diff --name-only b98ab93 HEAD` → 15개 파일(프론트 소스 7 + SPEC 아티팩트 6 + 백엔드 2는 머지 유입분) |
+
+### I.2 F1 — 해소 확정 (2개 독립 경로로 기계 증명)
+
+`design.md` §A.1의 판정 기준은 하나다 — "`position`을 취소 함수의 인자로 넘기는
+코드가 타입 검사에서 거부되는가".
+
+**경로 A — 인메모리 컴파일 프로브** (파일 미생성, `tsconfig.app.json`의 실제
+컴파일러 옵션을 파싱해 적용, TypeScript 6.0.3):
+
+```
+TS 6.0.3 | project options (tsconfig.app.json), strict=false
+[NEG] cancelWaitlistEntry(item.position, token)            -> 1 diagnostic(s)
+      TS2345: Argument of type 'number' is not assignable to parameter of type 'WaitlistEntryId'.
+              Type 'number' is not assignable to type '{ readonly __brand: "WaitlistEntryId"; }'.
+[POS] cancelWaitlistEntry(item.waitlistEntryId, token)     -> 0 diagnostic(s)
+[POS] cancelWaitlistEntry(resolveWaitlistCancelTarget(item), token) -> 0 diagnostic(s)
+
+RESULT: AC-FE-109 [검사] PASS — position REJECTED (TS2345), legitimate paths ACCEPTED
+```
+
+1차 §H.5의 동일 프로브가 `diagnostics: 0 / NOT REJECTED`였던 것과 정반대다.
+양성 대조 2건이 0 진단이므로, 거부가 브랜드 도입에 따른 **표적 거부**이지
+전면적 컴파일 실패가 아님이 확인된다.
+
+**경로 B — `@ts-expect-error` 가드의 비공허성(non-vacuity) 검증**:
+
+```
+$ npx tsc -p tsconfig.app.json --noEmit --listFiles
+tsc exit=0
+$ grep -n "endpoints.typecheck.ts" <listFiles 출력>
+200:/…/frontend/src/api/endpoints.typecheck.ts     # 컴파일 대상에 실제로 포함됨
+$ grep -E "error TS" <출력>
+(no error TS lines)
+```
+
+`tsconfig.app.json`의 `include: ["src"]`가 신규 가드 파일을 포함하며, 컴파일
+대상에 들어간 상태로 exit=0이다. TypeScript는 **공허한 `@ts-expect-error`를
+TS2578(Unused '@ts-expect-error' directive)로 오류 처리**하므로, exit=0은
+곧 다음 줄이 실제로 오류를 냈고 지시자가 그것을 억제했다는 뜻이다 — 즉
+가드는 no-op이 아니다. 파일을 임시 편집하지 않고도 비공허성이 증명된다.
+
+**부수 확인**:
+- 브랜드 우회 캐스트가 프로덕션 코드에 없다 — `grep -rn "as WaitlistEntryId" src/ | grep -v '\.test\.'` → 0건 (캐스트는 테스트 픽스처 3곳뿐)
+- `endpoints.typecheck.ts`는 `vite.config.ts`의 `test.include: ['src/**/*.test.ts']`와 불일치 → vitest가 실행하지 않는다(테스트 파일 수 15개로 기준선 동일). 런타임에 실행되지 않는 순수 타입 검사 자산이다.
+
+**판정**: **AC-FE-109 `[검사]` 절반 충족 → PASS.** `acceptance.md` §E.1 기계적
+판정 체크리스트 6번이 해소되었다.
+
+### I.3 F2 — 해소 확정
+
+1차 §H.6의 명령을 문자 그대로 재실행(HEAD `41f3531`):
+
+```
+$ git diff --name-only main -- src/ build.gradle
+lines=0                                    # AC-FE-900 기대값 0 → PASS
+$ git diff --name-only main -- .moai/specs/SPEC-AUTH-001 .moai/specs/SPEC-COURSE-001 .moai/specs/SPEC-ENROLLMENT-001
+lines=0                                    # AC-FE-903 기대값 0 → PASS
+$ git diff --name-only main -- .moai/project/
+lines=0                                    # AC-FE-904 → PASS(유지)
+```
+
+귀속 재확인 — 머지(`f4d17df`)가 프론트 소스를 건드리지 않았고, INV-FE-007도
+그대로 성립한다:
+
+```
+$ git diff --name-only b98ab93 f4d17df -- frontend/    → 0줄 (머지는 프론트 무변경)
+$ MB=$(git merge-base main HEAD)   # b5ee26e (= main 팁)
+$ git diff --name-only $MB HEAD -- src/ build.gradle                             → 0줄
+$ git diff --name-only $MB HEAD -- .moai/specs/SPEC-{AUTH,COURSE,ENROLLMENT}-001 → 0줄
+$ git diff --name-only $MB HEAD -- .moai/project/                                → 0줄
+```
+
+**판정**: **AC-FE-900 · AC-FE-903 → PASS.** 1차에서 "브랜치 뒤처짐
+아티팩트"로 진단한 것이 정확했음이 해소로 확증되었다.
+
+### I.4 F3 — 해소 확정 (다만 후속 공개 누락 F11 신설)
+
+`CHANGELOG.md`는 `41f3531`에서 편집되지 않았다(`git diff --name-only f4d17df HEAD -- CHANGELOG.md` → 0줄).
+manager-develop의 "F1 수정으로 자동 해소" 주장을 원문 대조로 검증했다:
+
+- **문장 ①** (L81) — "대기 취소 대상은 `waitlistEntryId`이며 `position`이 아님을
+  **타입·로직 양쪽에서** 구별(INV-FE-009)". `types.ts:116`에 `WaitlistEntryId`
+  브랜디드 타입이 도입되고 `endpoints.ts:144`가 이를 인자 타입으로 받으므로
+  "타입 층위 구별"은 이제 **문자 그대로 참**이다(I.2에서 기계 증명). → **참**
+- **문장 ②** (L86) — "…(총 86건) … **M1~M6 코드 레벨**(단위 테스트 114건 +
+  정적 grep) 전부 PASS". 이 문장의 검증 수단 한정어는 "코드 레벨"이며, 해당
+  집합은 `[검사]` 14 + `[자동]` 16 + 혼합 3 = **33건**이다. 1차의 FAIL 3건이
+  전부 이 집합에 속했고 지금 전부 PASS이므로, 1차가 제시한 반증 근거
+  (AC-FE-109)는 소멸했다. → **참**
+
+**판정**: **F3 해소.** 1차가 특정한 두 문장의 허위성은 모두 사라졌다.
+
+다만 재검증 중 **약화된 후속 우려**를 발견해 F11로 신설한다(차단 아님) —
+CHANGELOG는 `[수동]` AC 15건이 어떤 관측 기록도 없이 남아 있다는 사실을
+어디에도 공개하지 않는다. 이는 **허위 진술이 아니라 공개 누락**이며, "(총
+86건) … 전부 PASS"라는 문장 배열이 한정어를 놓친 독자에게 "86건 전부 통과"로
+읽힐 여지를 남긴다. Known Limitations 절이 S7·S9·AC-FE-088만 열거하고 있어
+더욱 그렇다.
+
+### I.5 회귀 검증 (1차 기준선 대비)
+
+| 명령 | 1차 기준선 | 2차 결과 | 판정 |
+|---|---|---|---|
+| `npx vitest run` | exit=0, 15 files / 114 tests | `Test Files 15 passed (15)` / `Tests 114 passed (114)`, exit=0 | 동일 |
+| `npx tsc -p tsconfig.app.json --noEmit` | exit=0 (`tsc -b --force`) | exit=0, `error TS` 0건 | 동일 |
+| `npm run lint` (oxlint) | exit=0 | exit=0 (출력 없음) | 동일 |
+| `npm audit` | found 0 vulnerabilities | found 0 vulnerabilities | 동일 |
+| `npm run build` | exit=0 | exit=0, 151 modules, `dist/`(index.html·assets/·favicon.svg) 생성 확인 — 오케스트레이터가 승인 후 직접 실행 | 동일 |
+
+**신규 테스트 0건**: F1 수정은 컴파일 타임 가드(`endpoints.typecheck.ts`)로
+회귀를 잡으며, 런타임 테스트 수는 114건 그대로다. 이는 결함이 아니라 설계
+선택이다 — `@ts-expect-error`는 vitest가 아니라 `tsc`가 집행한다.
+
+**런타임 동작 변경 0건**: 브랜디드 타입은 컴파일 후 소거되며, 프로덕션 코드의
+유일한 호출부(`MyWaitlistPage.tsx:56`)는 `resolveWaitlistCancelTarget`의
+반환값을 그대로 넘기던 기존 배선 그대로다.
+
+### I.6 갱신된 AC 집계 (86건)
+
+| 검증 수단 | 건수 | PASS | FAIL | UNVERIFIED | 1차 대비 |
+|---|---|---|---|---|---|
+| `[검사]` | 14 | 14 | 0 | 0 | FAIL 2 → 0 (900·903) |
+| `[자동]` | 16 | 16 | 0 | 0 | 변동 없음 |
+| 혼합 | 3 | 3 | 0 | 0 | FAIL 1 → 0 (109) |
+| `[수동]` | 53 | 38 | 0 | 15 | 변동 없음(유예) |
+| **합계** | **86** | **71** | **0** | **15** | 68/3/15 → 71/0/15 |
+
+UNVERIFIED 15건의 내역은 `§H.3` 표를 그대로 승계한다(재관측하지 않았다).
+
+### I.7 갱신된 차원별 점수
+
+| 차원 | 1차 | 2차 | 판정 | 변동 근거 |
+|---|---|---|---|---|
+| Functionality (40%) | 72 | **84** | PASS | FAIL 3건 소멸, 차단 등급 AC-FE-109 기계 충족. 만점이 아닌 이유는 UNVERIFIED 15건이 그대로이기 때문 |
+| Security (25%) | 90 | **90** | PASS | 프로브 6종 재실행 — XSS 싱크 0 · `console.*` 0 · 하드코딩 URL 0 · 시크릿 0 · `npm audit` 0. 이번 델타는 타입 층위 변경뿐이라 보안 표면 무변동 |
+| Craft (20%) | 62 | **63** | FAIL | 컴파일 타임 회귀 가드 신설(+)과 신규 F10(`strict: false`) 발견(−)이 상쇄. 근본 감점 사유인 커버리지 측정 수단 부재(F4)는 그대로 |
+| Consistency (15%) | 74 | **82** | PASS | F3 해소로 CHANGELOG-소스 불일치 소멸. F11(공개 누락)·F10만큼 감점 유지 |
+
+조화평균: `4 / (1/84 + 1/90 + 1/63 + 1/82)` = **78.3 / 100** (1차 73.2, +5.1).
+
+### I.8 종합 판정 — 여전히 FAIL, 그러나 FAIL 근거가 완전히 이동했다
+
+| 항목 | 값 |
+|---|---|
+| 종합 판정 | **FAIL** |
+| 조화평균 | **78.3 / 100** (Tier L 통과선 85) |
+| AC 집계 | PASS 71 / FAIL 0 / UNVERIFIED 15 |
+| 차단 등급 미충족 | **없음** (1차의 유일한 차단 사유 AC-FE-109 해소) |
+| 잔여 FAIL 근거 | ① 조화평균 78.3 < 85 (주동인: Craft 63 — F4 커버리지 측정 불가) ② `acceptance.md` §E.4 "부분 완료 경로 없음" 조항이 UNVERIFIED 15건으로 여전히 미충족 |
+
+**이 판정의 성격 변화를 분명히 한다.** 1차 FAIL은 *점수가 아니라 필수 항목
+미충족*(차단 등급 AC-FE-109)이 근거였다. 2차 FAIL은 필수 항목 미충족이
+**하나도 없으며**, 전적으로 오케스트레이터·사용자가 **명시적으로 다음 회차로
+유예한 항목**(F4 · F5 · UNVERIFIED 15)에서만 나온다. 즉 남은 FAIL은
+"발견되지 않은 결함"이 아니라 "공개된 채 유예된 부채"다.
+
+`status: completed` 전이(§H.7)는 **여전히 시기상조**이나 근거가 3개에서
+1개로 줄었다 — §E.1 체크리스트 6번(AC-FE-109)과 §C 차단 등급 조항은 해소되었고,
+§E.4 "부분 완료 경로가 없다" 조항만 남았다. 감사자는 판정만 기록하며
+frontmatter를 되돌리지 않는다(상태 전이 소유자는 manager-docs).
+
+### I.9 PR 준비도 판정 — **이번 회차 범위에서 진행 가능**
+
+| 1차 PR 차단 발견 | 2차 판정 | 증거 |
+|---|---|---|
+| F1 (Blocker) | **해소** | I.2 — 2개 독립 경로 기계 증명 |
+| F2 (High) | **해소** | I.3 — 세 명령 모두 0줄 |
+| F3 (Medium) | **해소** | I.4 — 두 문장 모두 참 |
+
+**판정: 이번 회차 범위(F1+F2+F3)에 한해 PR 생성 진행이 안전하다.** 단 PR
+본문에 미해결 항목(F4·F5·UNVERIFIED 15건·F10·F11)을 명시적으로 공개해야
+한다 — 공개가 없으면 F11(공개 누락)이 PR 층위에서 재발한다.
+`npm run build`는 오케스트레이터가 승인 직후 직접 실행해 exit=0을 확인했다
+(I.5).
+
+### I.10 신규 발견 사항
+
+| ID | 등급 | 확신도 | 위치 | 내용 |
+|---|---|---|---|---|
+| **F10** | Low | 확정(기계적) | `frontend/tsconfig.app.json` | **`strict` 컴파일러 옵션이 설정되어 있지 않다** — `extends`도 없어 `strict: false`가 실효 값이다(프로브 출력 `strict=false`로 확인). `strictNullChecks` 부재로 `null`/`undefined` 오배선이 타입 검사를 통과한다. Vite의 공식 react-ts 템플릿은 `strict: true`를 켠다. **AC-FE-109 가드는 무관하게 유효하다** — 브랜디드 타입 거부는 strict 모드와 독립임을 프로브로 실증했다(`strict=false` 상태에서 TS2345 발생). |
+| **F11** | Info | 확정 | `CHANGELOG.md` L86 · L90-94 | **UNVERIFIED 15건이 공개되지 않는다.** F3의 약화된 후속 — 허위 진술은 아니나, "(총 86건) … 전부 PASS" 배열이 한정어("M1~M6 코드 레벨")를 놓친 독자에게 전건 통과로 읽힐 여지를 남기고, Known Limitations가 15건을 열거하지 않는다. |
+| **F12** | Info | 확정 | `§H.10` (1차 감사 기록) | **감사자 자기정정.** 1차 §H.10이 `grep -rn "localStorage" src/ \| grep -v '\.test\.'`의 결과를 `# 0 (주석 언급만)`으로 적었으나, 실제 재실행 결과는 **2줄**이다(`src/session/tokenStorage.ts:4`, `:6` — 둘 다 "localStorage로 회귀시키지 말 것"을 경고하는 `@MX:REASON` 주석). 괄호 주석("주석 언급만")은 정확했고 숫자 표기만 틀렸다. `b98ab93` 시점에도 동일한 2줄이 존재했으므로 **회귀가 아니라 1차 기록의 전사 오류**이며, 실제 `localStorage` 사용은 0건이므로 **보안 판정에는 영향이 없다**(AC-FE-905 계열 PASS 유지). |
+
+### I.11 이월 항목 (재검증하지 않음 — 상태 그대로 승계)
+
+`§H.4`의 다음 발견은 이번 회차 범위 밖으로 명시 유예되었으며, 감사자는 이들을
+**해소로 셈하지 않는다**:
+
+| ID | 등급 | 상태 | 비고 |
+|---|---|---|---|
+| F4 | Medium | 미해소 | 커버리지 측정 수단 부재. Craft 63점의 주동인 |
+| F5 | Medium | 미해소 | `vite.config.ts:17`의 `test.include: ['src/**/*.test.ts']` 그대로. `find src -name '*.test.tsx' \| wc -l` → **0** 재확인 |
+| F6 | Low | 미해소 | 로그아웃 문구 시제 |
+| F7 | Low | 미해소 | §E.2 M4 vs §E.2 M7 S9 기록 모순 |
+| F8 | Low | 미해소 | oxlint 규칙 집합이 얇음(재실행 시 출력 0줄 — 기준 설정이 사실상 무점검임을 재확인) |
+| F9 | Info | 미해소 | 정본 OWASP 체크리스트 미적재 |
+| UNVERIFIED 15건 | — | 미해소 | `§H.3` 표 승계. 재관측하지 않았다 |
+
+### I.12 미검증(Gap) — 감사자가 관측하지 **못한** 것
+
+- **`[수동]` AC 53건 브라우저 재관측 없음.** PASS 38건은 `§H` 그대로 `§E.2` 기록에 대한 전달 판정이다.
+- **커버리지 수치 미측정**(F4 도구 부재). 어떤 커버리지 주장도 하지 않는다.
+- **정본 OWASP 체크리스트 미적재**(F9). Security 90점은 수동 프로브 6종 + 의존성 감사 기반이다.
+- **백엔드 연동 실동작 미수행.** 서버를 기동하지 않았다.
+- **`endpoints.typecheck.ts` 가드의 파일 임시 편집 검증 미수행.** 브랜드를 실제로 제거해 TS2578이 나는지는 감사자가 직접 확인하지 않았다(감사 제약: 소스 무변경). 대신 TS2578 의미론 + 컴파일 대상 포함 + exit=0의 3중 조합으로 비공허성을 간접 증명했다(I.2 경로 B). manager-develop이 커밋 메시지에서 "임시 되돌리기로 직접 확인"했다고 주장하나, 감사자는 그 주장을 재현하지 않았다 — 다만 오케스트레이터가 별도로 그 실험을 수행했음이 manager-develop 완료 보고에 기록되어 있다.
+
+### I.13 잔여 위험(Residual risk)
+
+- **브랜드는 컴파일 타임 전용이며 런타임에 소거된다.** `getMyWaitlistEntries`는 `apiFetch<WaitlistListItem[]>`로 원시 JSON을 무검증 캐스팅하므로, 백엔드가 `waitlistEntryId` 자리에 `position` 값을 실어 보내는 **와이어 층위 오배선은 여전히 잡히지 않는다.** `design.md` §A.1의 판정 기준은 "타입 검사에서 거부되는가"이므로 이는 AC 미충족이 아니며, 방어 대상은 어디까지나 "향후 편집자가 도입하는 오배선"이다.
+- **F10(`strict: false`)이 만드는 사각지대.** 브랜드 가드는 무관하게 유효하지만, 15개 화면 컴포넌트에 자동 테스트가 0건(F5)인 상태에서 `strictNullChecks`까지 꺼져 있어 널 관련 화면 배선 결함이 어느 층에서도 걸리지 않는다.
+- **UNVERIFIED 중 AC-FE-041 · 046 · 068/069는 오늘까지 단 한 번도 실행된 적 없는 코드 경로**라는 `§H`의 잔여 위험이 그대로 유효하다.
+
+### I.14 재현 명령 (2차)
+
+```bash
+cd frontend
+npx vitest run                                      # exit=0, 15 files / 114 tests
+npx tsc -p tsconfig.app.json --noEmit --listFiles   # exit=0, error TS 0건, typecheck.ts 포함 확인
+npm run lint                                        # exit=0
+npm audit                                           # found 0 vulnerabilities
+npm run build                                       # exit=0, 151 modules
+grep -rn "as WaitlistEntryId" src/ | grep -v '\.test\.'   # 0 (프로덕션 우회 캐스트 없음)
+find src -name '*.test.tsx' | wc -l                 # 0 (F5 이월 확인)
+
+cd ..
+git diff --name-only main -- src/ build.gradle                                     # 0 (AC-FE-900)
+git diff --name-only main -- .moai/specs/SPEC-{AUTH,COURSE,ENROLLMENT}-001         # 0 (AC-FE-903)
+git diff --name-only main -- .moai/project/                                        # 0 (AC-FE-904)
+MB=$(git merge-base main HEAD); git diff --name-only $MB HEAD -- src/ build.gradle # 0 (INV-FE-007)
+git diff --name-only f4d17df HEAD -- CHANGELOG.md                                  # 0 (F3 무편집 확인)
+```
+
+---
