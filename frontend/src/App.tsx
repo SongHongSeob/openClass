@@ -151,7 +151,7 @@ function LoginRoute() {
     return <Navigate to="/" replace />
   }
   return (
-    <div className="flex flex-col items-start gap-3">
+    <div className="flex flex-col items-center gap-3">
       <LoginPage onLoginSuccess={() => navigate('/')} />
       <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/signup')}>
         계정이 없으신가요? 회원가입
@@ -171,7 +171,7 @@ function SignupRoute() {
     return <Navigate to="/" replace />
   }
   return (
-    <div className="flex flex-col items-start gap-3">
+    <div className="flex flex-col items-center gap-3">
       <SignupPage onSignupSuccess={() => navigate('/login')} />
       <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/login')}>
         이미 계정이 있으신가요? 로그인
@@ -256,6 +256,23 @@ function Layout() {
 }
 
 /**
+ * `/login`·`/signup` 전용 사이드바 없는 풀스크린 레이아웃. `fixed inset-0`으로
+ * `index.css`의 전역 `#root { max-width: 720px; margin: 0 auto }` 제약을
+ * 벗어나 뷰포트 전체를 채운다 — 다른 라우트는 여전히 그 제약을 받는다.
+ */
+function AuthLayout() {
+  return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-8 bg-neutral-50 p-6 dark:bg-neutral-950">
+      <div className="flex flex-col items-center gap-1">
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">OpenClass</h1>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">강좌 신청부터 대기명단까지, 한 곳에서</p>
+      </div>
+      <Outlet />
+    </div>
+  )
+}
+
+/**
  * `/requests/:requestId` 경로 진입점 — REQ-SES-009(인증 가드) + 식별자
  * 파싱을 담당하고, 실제 폴링/렌더링은 `RequestStatusPage`에 위임한다. 세션이
  * 없으면 `/`로 유도한다(AnonymousView가 기본으로 로그인 화면을 보여준다 —
@@ -303,9 +320,11 @@ function MyWaitlistRoute() {
 function AppRoutes() {
   return (
     <Routes>
-      <Route element={<Layout />}>
+      <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/signup" element={<SignupRoute />} />
+      </Route>
+      <Route element={<Layout />}>
         <Route path="/requests/:requestId" element={<RequestStatusRoute />} />
         <Route path="/enrollments/mine" element={<MyEnrollmentsRoute />} />
         <Route path="/waitlist/mine" element={<MyWaitlistRoute />} />

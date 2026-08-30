@@ -38,7 +38,7 @@ export function SignupPage({ onSignupSuccess }: SignupPageProps) {
   }
 
   return (
-    <Card className="max-w-md">
+    <Card className="max-w-lg">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">회원가입</h1>
         <Label>
