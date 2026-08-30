@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { EnrollmentStatus, CourseStatus, WaitlistListItem, EnrollmentListItem } from './types'
+import type { EnrollmentStatus, CourseStatus, WaitlistEntryId, WaitlistListItem, EnrollmentListItem } from './types'
 
 describe('EnrollmentStatus — REQ-ENR-009 type tolerance', () => {
   it('accepts every currently-known terminal status without a compile error', () => {
@@ -36,7 +36,7 @@ describe('CourseStatus — tolerant status union', () => {
 describe('waitlistEntryId / position structural distinction (design.md §A.1, INV-FE-009)', () => {
   it('keeps waitlistEntryId and position as separate fields on the same item', () => {
     const item: WaitlistListItem = {
-      waitlistEntryId: 1,
+      waitlistEntryId: 1 as WaitlistEntryId,
       courseId: 10,
       courseTitle: '테스트 강좌',
       position: 2,

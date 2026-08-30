@@ -11,7 +11,7 @@ import {
   toListView,
 } from './cancellationModel'
 import { ApiError } from '../api/client'
-import type { EnrollmentListItem, WaitlistListItem } from '../api/types'
+import type { EnrollmentListItem, WaitlistEntryId, WaitlistListItem } from '../api/types'
 
 function enrollmentItem(overrides: Partial<EnrollmentListItem> = {}): EnrollmentListItem {
   return {
@@ -26,7 +26,7 @@ function enrollmentItem(overrides: Partial<EnrollmentListItem> = {}): Enrollment
 
 function waitlistItem(overrides: Partial<WaitlistListItem> = {}): WaitlistListItem {
   return {
-    waitlistEntryId: 99,
+    waitlistEntryId: 99 as WaitlistEntryId,
     courseId: 20,
     courseTitle: '자료구조',
     position: 1,
@@ -38,7 +38,7 @@ function waitlistItem(overrides: Partial<WaitlistListItem> = {}): WaitlistListIt
 // (a) waitlistEntryId-vs-position 식별자 바인딩 — 잘못 배선되면 실패해야 한다.
 describe('resolveWaitlistCancelTarget — REQ-CNL-003 / INV-FE-009', () => {
   it('waitlistEntryId를 반환하며 position을 반환하지 않는다', () => {
-    const item = waitlistItem({ waitlistEntryId: 5, position: 999 })
+    const item = waitlistItem({ waitlistEntryId: 5 as WaitlistEntryId, position: 999 })
     expect(resolveWaitlistCancelTarget(item)).toBe(5)
     expect(resolveWaitlistCancelTarget(item)).not.toBe(999)
   })

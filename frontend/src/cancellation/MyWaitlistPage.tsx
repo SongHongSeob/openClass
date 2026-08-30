@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { cancelWaitlistEntry, getMyWaitlistEntries } from '../api/endpoints'
 import { ApiError } from '../api/client'
-import type { WaitlistListItem } from '../api/types'
+import type { WaitlistEntryId, WaitlistListItem } from '../api/types'
 import {
   decidePostCancelAction,
   describeCancelError,
@@ -26,7 +26,7 @@ type LoadState =
 
 export function MyWaitlistPage({ token }: MyWaitlistPageProps) {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
-  const [cancellingId, setCancellingId] = useState<number | null>(null)
+  const [cancellingId, setCancellingId] = useState<WaitlistEntryId | null>(null)
   const [cancelError, setCancelError] = useState<string | null>(null)
 
   const load = useCallback(() => {

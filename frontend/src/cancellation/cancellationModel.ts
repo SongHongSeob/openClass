@@ -8,7 +8,7 @@
 // 생기지 않는다.
 
 import { ApiError } from '../api/client'
-import type { EnrollmentListItem, WaitlistListItem } from '../api/types'
+import type { EnrollmentListItem, WaitlistEntryId, WaitlistListItem } from '../api/types'
 
 /**
  * REQ-CNL-007 — 빈 배열(`200` + `[]`)은 오류가 아니라 "보유 내역 없음"이다.
@@ -33,9 +33,11 @@ export function resolveEnrollmentCancelTarget(item: EnrollmentListItem): number 
 /**
  * REQ-CNL-003 / INV-FE-009 — 대기명단 취소 대상 식별자는 `waitlistEntryId`이며
  * `position`이 아니다. 화면은 이 함수의 반환값만 취소 API에 전달해야 한다 —
- * `item.position`을 직접 전달하는 코드 경로를 만들지 않는다.
+ * `item.position`을 직접 전달하는 코드 경로를 만들지 않는다. 반환 타입을
+ * `WaitlistEntryId`로 좁혀 두면, 반환값을 그대로 `cancelWaitlistEntry`에
+ * 넘기는 호출자는 변경이 필요 없다(AC-FE-109).
  */
-export function resolveWaitlistCancelTarget(item: WaitlistListItem): number {
+export function resolveWaitlistCancelTarget(item: WaitlistListItem): WaitlistEntryId {
   return item.waitlistEntryId
 }
 

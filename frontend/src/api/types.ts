@@ -105,21 +105,34 @@ export interface EnrollmentListItem {
 }
 
 /**
+ * `waitlistEntryId`와 `position`을 타입 층위에서도 구별한다(AC-FE-109,
+ * sync-auditor F1 — `.moai/specs/SPEC-FRONTEND-001/progress.md` §H.5).
+ * 둘 다 백엔드에서 `Long`이라 필드명만으로는 구별되지 않으므로,
+ * `waitlistEntryId`를 브랜디드 타입으로 만들어 `position`(순수 `number`)을
+ * 취소 함수 인자로 넘기는 코드가 타입 검사에서 거부되게 한다(design.md §A.1
+ * 판정 기준: "position을 취소 함수의 인자로 넘기는 코드가 타입 검사에서
+ * 거부되는가").
+ */
+export type WaitlistEntryId = number & { readonly __brand: 'WaitlistEntryId' }
+
+/**
  * WaitlistListItemResponse → WaitlistListItem ("내 대기명단" 목록,
  * `GET /api/waitlist-entries/mine`).
  *
  * `waitlistEntryId`와 `position`을 의도적으로 별개 필드로 구조화한다
- * (INV-FE-009) — 둘 다 백엔드에서 `Long`이라 필드명 외에는 구별 수단이 없다.
+ * (INV-FE-009) — 둘 다 백엔드에서 `Long`이라 필드명 외에는 런타임 구별 수단이
+ * 없었으나, `waitlistEntryId`는 이제 `WaitlistEntryId` 브랜디드 타입이라
+ * `position`과 구조적으로도 구별된다.
  * M6의 취소 호출(`DELETE /api/waitlist-entries/{entryId}`)은 반드시
  * `waitlistEntryId`를 읽어야 하며, `position`을 넣으면 본인 소유의 엉뚱한 행이
- * 조용히 취소된다(spec.md §A.4).
+ * 조용히 취소된다(spec.md §A.4) — 지금은 타입 검사가 이를 컴파일 타임에 막는다.
  *
  * `position`은 **강좌 단위** 순번이며 전역 순위가 아니다(REQ-CNL-010 /
  * INV-FE-011) — 이 값을 렌더링하는 화면은 반드시 `courseTitle`과 함께 표시하고
  * 전역 대기 순위처럼 보이게 표시해서는 안 된다.
  */
 export interface WaitlistListItem {
-  waitlistEntryId: number
+  waitlistEntryId: WaitlistEntryId
   courseId: number
   courseTitle: string
   position: number

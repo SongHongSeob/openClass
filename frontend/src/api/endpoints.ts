@@ -13,6 +13,7 @@ import type {
   Receipt,
   RequestStatus,
   SignupResult,
+  WaitlistEntryId,
   WaitlistListItem,
 } from './types'
 
@@ -136,8 +137,10 @@ export function cancelEnrollment(enrollmentId: number, token: string): Promise<R
  * `DELETE /api/waitlist-entries/{entryId}` — REQ-CNL-003, spec.md §A.4 8번.
  * 200 동기 응답(본문 없음) — 확정 취소와 달리 폴링을 개시하지 않는다.
  * 경로 변수는 반드시 `waitlistEntryId`이며 `position`이 아니다(INV-FE-009,
- * `cancellation/cancellationModel.ts`의 `resolveWaitlistCancelTarget`).
+ * `cancellation/cancellationModel.ts`의 `resolveWaitlistCancelTarget`). 인자
+ * 타입이 `WaitlistEntryId`(브랜디드 타입)이므로 `position`(순수 `number`)을
+ * 실수로 넘기는 호출은 타입 검사에서 거부된다(AC-FE-109).
  */
-export function cancelWaitlistEntry(waitlistEntryId: number, token: string): Promise<void> {
+export function cancelWaitlistEntry(waitlistEntryId: WaitlistEntryId, token: string): Promise<void> {
   return apiFetch<void>(`/api/waitlist-entries/${waitlistEntryId}`, { method: 'DELETE', token })
 }
