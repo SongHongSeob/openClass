@@ -1,10 +1,10 @@
 ---
 id: SPEC-AUTH-001
 title: "회원 가입·로그인 및 JWT 인증 기반"
-version: "0.1.1"
+version: "0.1.2"
 status: completed
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-30
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -12,6 +12,7 @@ module: "src/main/java/com/hongseob/openclass_ap/member"
 lifecycle: spec-anchored
 tags: "auth, jwt, member, role, security, spring-boot"
 tier: M
+amendment_of: SPEC-AUTH-001
 ---
 
 # SPEC-AUTH-001 — 회원 가입·로그인 및 JWT 인증 기반
@@ -22,6 +23,16 @@ tier: M
 |---|---|---|---|
 | 0.1.0 | 2026-08-15 | manager-spec | 최초 작성 (draft) — SPEC-ENROLLMENT-001 3분할 중 1번. 인증 전략은 사용자 결정에 따라 **JWT**로 확정 |
 | 0.1.1 | 2026-08-15 | manager-spec | 2차 감사 지적 반영 — A1(테스트 전용 보호/관리자 엔드포인트 픽스처 미선언 → plan.md §C.5·M3에 선언), A2(REQ-AUTHZ-006의 강좌 조회를 교차 SPEC 이관으로 명시), A3/E6(REQ-NFR-004에서 TDD 프로세스 절을 분리하여 plan.md §D 제약으로 이동, DoD 문구 정정) |
+| 0.1.2 | 2026-08-30 | manager-develop | in-place amendment (completed → in-progress) — 실서버(RANDOM_PORT)에서만 재현되는 프로덕션 결함 수정. 아래 `## Amendments` 참고 |
+
+## Amendments
+
+### Amendment 1 (2026-08-30)
+
+- **prior completed version**: 0.1.1
+- **prior_completed_sha**: `b0b78b483ff3fa481314aabe4781883fbe6cc0a1` (`docs(SPEC-AUTH-001): sync-phase artifacts — CHANGELOG, tech.md/structure.md 최신화, 3-phase close`)
+- **rationale**: 오케스트레이터가 실행 중인 서버에 대한 라이브 curl 테스트로 근본 원인을 규명했다 — `SecurityConfig`의 `authorizeHttpRequests`가 `/api/auth/**`·`/api/courses`(GET)·`/api/admin/**`는 permitAll/hasRole로 선언했지만 `/error`는 선언하지 않았다. Spring MVC의 `DefaultHandlerExceptionResolver`가 `@Valid` 실패나 파싱 불가 JSON을 400으로 해석한 뒤, 서블릿 컨테이너가 그 응답을 클라이언트로 보내기 전에 내부적으로 `/error`로 재포워드하는데, 이 포워드된 요청 자체가 `anyRequest().authenticated()`에 걸려 실제 400이 도달하기 전에 `authenticationEntryPoint`가 401(빈 본문)을 먼저 반환했다 — 완전히 공개된 `/api/auth/signup` 같은 엔드포인트에서도 발생했다. `SignupIntegrationTest`(MockMvc 기반)는 `DefaultHandlerExceptionResolver`의 해석 결과를 직접 캡처할 뿐 서블릿 컨테이너의 `/error` 내부 포워드를 재현하지 않으므로 이 결함이 기존 테스트 스위트를 전부 통과하면서도 실서버에서는 재현되는 MockMvc/실서버 패리티 갭이었다.
+- **scope**: `src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java` — `/error`를 `permitAll()` 목록에 추가하는 최소 변경 1건. 다른 인가 규칙은 변경하지 않는다. 신규 회귀 테스트 `src/test/java/com/hongseob/openclass_ap/common/config/SecurityErrorForwardIntegrationTest.java`(실서버 RANDOM_PORT 기반, MockMvc 아님)로 재현·검증한다. 프론트엔드(SPEC-FRONTEND-001)의 전역 401 처리는 이 결함의 다운스트림 증상이었을 뿐 프론트엔드 자체의 결함이 아니며, 이 백엔드 수정만으로 해소되고 프론트엔드 코드 변경은 필요하지 않다.
 
 ---
 
