@@ -9,6 +9,12 @@ import { createCourse, getCourseDetail, updateCourse, type CourseFormPayload } f
 import { ApiError } from '../api/client'
 import type { Course } from '../api/types'
 import { classifyCourseFormError, isCapacityIncrease, toFormValues } from './adminModel'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Alert } from '@/components/ui/alert'
 
 export interface AdminCourseFormPageProps {
   token: string
@@ -77,72 +83,78 @@ export function AdminCourseFormPage({ token, courseId, onSaved, onCancel }: Admi
   }
 
   if (loadState.status === 'loading') {
-    return <p>불러오는 중…</p>
+    return <p className="text-sm text-neutral-500">불러오는 중…</p>
   }
   if (loadState.status === 'load-error') {
-    return <p role="alert">{loadState.message}</p>
+    return <Alert role="alert" tone="error">{loadState.message}</Alert>
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h2>{isEditMode ? '강좌 수정' : '강좌 생성'}</h2>
-      <label>
-        제목
-        <input
-          required
-          value={values.title}
-          onChange={(event) => setValues((current) => ({ ...current, title: event.target.value }))}
-        />
-      </label>
-      <label>
-        설명
-        <textarea
-          value={values.description ?? ''}
-          onChange={(event) => setValues((current) => ({ ...current, description: event.target.value }))}
-        />
-      </label>
-      <label>
-        정원
-        <input
-          type="number"
-          min={1}
-          required
-          value={values.capacity}
-          onChange={(event) => setValues((current) => ({ ...current, capacity: Number(event.target.value) }))}
-          aria-invalid={submitState.status === 'error' && submitState.field === 'capacity'}
-        />
-      </label>
-      <label>
-        시작 일시
-        <input
-          type="datetime-local"
-          required
-          value={values.startsAt}
-          onChange={(event) => setValues((current) => ({ ...current, startsAt: event.target.value }))}
-        />
-      </label>
-      <label>
-        종료 일시
-        <input
-          type="datetime-local"
-          required
-          value={values.endsAt}
-          onChange={(event) => setValues((current) => ({ ...current, endsAt: event.target.value }))}
-        />
-      </label>
-      {showCapacityIncreaseNotice && (
-        <p role="status">
-          정원 증설은 대기자 승격을 유발할 수 있습니다. 승격 결과는 이 화면에 즉시 반영되지 않을 수 있으며, 잠시 후
-          다시 조회하면 확정 인원 증가를 확인할 수 있습니다.
-        </p>
-      )}
-      {submitState.status === 'error' && <p role="alert">{submitState.message}</p>}
-      <button type="submit" disabled={submitState.status === 'submitting'}>
-        저장
-      </button>
-      <button type="button" onClick={onCancel}>
-        취소
-      </button>
-    </form>
+    <Card className="max-w-xl">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+          {isEditMode ? '강좌 수정' : '강좌 생성'}
+        </h2>
+        <Label>
+          제목
+          <Input
+            required
+            value={values.title}
+            onChange={(event) => setValues((current) => ({ ...current, title: event.target.value }))}
+          />
+        </Label>
+        <Label>
+          설명
+          <Textarea
+            value={values.description ?? ''}
+            onChange={(event) => setValues((current) => ({ ...current, description: event.target.value }))}
+          />
+        </Label>
+        <Label>
+          정원
+          <Input
+            type="number"
+            min={1}
+            required
+            value={values.capacity}
+            onChange={(event) => setValues((current) => ({ ...current, capacity: Number(event.target.value) }))}
+            aria-invalid={submitState.status === 'error' && submitState.field === 'capacity'}
+          />
+        </Label>
+        <Label>
+          시작 일시
+          <Input
+            type="datetime-local"
+            required
+            value={values.startsAt}
+            onChange={(event) => setValues((current) => ({ ...current, startsAt: event.target.value }))}
+          />
+        </Label>
+        <Label>
+          종료 일시
+          <Input
+            type="datetime-local"
+            required
+            value={values.endsAt}
+            onChange={(event) => setValues((current) => ({ ...current, endsAt: event.target.value }))}
+          />
+        </Label>
+        {showCapacityIncreaseNotice && (
+          <Alert role="status" tone="info">
+            정원 증설은 대기자 승격을 유발할 수 있습니다. 승격 결과는 이 화면에 즉시 반영되지 않을 수 있으며, 잠시 후
+            다시 조회하면 확정 인원 증가를 확인할 수 있습니다.
+          </Alert>
+        )}
+        {submitState.status === 'error' && <Alert role="alert" tone="error">{submitState.message}</Alert>}
+        <div className="flex gap-2">
+          <Button type="submit" disabled={submitState.status === 'submitting'}>
+            저장
+          </Button>
+          <Button type="button" variant="outline" onClick={onCancel}>
+            취소
+          </Button>
+        </div>
+      </form>
+    </Card>
   )
 }

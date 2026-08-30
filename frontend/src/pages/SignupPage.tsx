@@ -5,6 +5,11 @@
 import { useState, type FormEvent } from 'react'
 import { signup } from '../api/endpoints'
 import { ApiError } from '../api/client'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert } from '@/components/ui/alert'
+import { Card } from '@/components/ui/card'
 
 export interface SignupPageProps {
   /** REQ-SES-001 — 성공 시 로그인 화면으로 유도한다. */
@@ -33,27 +38,35 @@ export function SignupPage({ onSignupSuccess }: SignupPageProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>회원가입</h1>
-      <label>
-        이메일
-        <input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-      </label>
-      <label>
-        비밀번호
-        <input
-          type="password"
-          required
-          minLength={8}
-          autoComplete="new-password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-        />
-      </label>
-      {state.status === 'error' && <p role="alert">{state.message}</p>}
-      <button type="submit" disabled={state.status === 'submitting'}>
-        가입하기
-      </button>
-    </form>
+    <Card className="max-w-md">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">회원가입</h1>
+        <Label>
+          이메일
+          <Input
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </Label>
+        <Label>
+          비밀번호
+          <Input
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </Label>
+        {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
+        <Button type="submit" disabled={state.status === 'submitting'}>
+          가입하기
+        </Button>
+      </form>
+    </Card>
   )
 }

@@ -6,6 +6,11 @@ import { useState, type FormEvent } from 'react'
 import { login } from '../api/endpoints'
 import { ApiError } from '../api/client'
 import { useSession } from '../session/useSession'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert } from '@/components/ui/alert'
+import { Card } from '@/components/ui/card'
 
 export interface LoginPageProps {
   /** 로그인 성공 후 다음 화면으로 이동시킨다. 내비게이션 수단은 상위 레이어가
@@ -35,26 +40,34 @@ export function LoginPage({ onLoginSuccess }: LoginPageProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>로그인</h1>
-      <label>
-        이메일
-        <input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-      </label>
-      <label>
-        비밀번호
-        <input
-          type="password"
-          required
-          autoComplete="current-password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-        />
-      </label>
-      {state.status === 'error' && <p role="alert">{state.message}</p>}
-      <button type="submit" disabled={state.status === 'submitting'}>
-        로그인
-      </button>
-    </form>
+    <Card className="max-w-md">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">로그인</h1>
+        <Label>
+          이메일
+          <Input
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </Label>
+        <Label>
+          비밀번호
+          <Input
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </Label>
+        {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
+        <Button type="submit" disabled={state.status === 'submitting'}>
+          로그인
+        </Button>
+      </form>
+    </Card>
   )
 }

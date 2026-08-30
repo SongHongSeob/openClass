@@ -15,6 +15,8 @@ import { AdminCourseFormPage } from './admin/AdminCourseFormPage'
 import { resolveAdminGuardFallback, shouldShowAdminMenu } from './admin/adminModel'
 import { MyEnrollmentsPage } from './cancellation/MyEnrollmentsPage'
 import { MyWaitlistPage } from './cancellation/MyWaitlistPage'
+import { Button } from '@/components/ui/button'
+import { Alert } from '@/components/ui/alert'
 
 // M2 — 회원가입·로그인·세션 수립/복원/폐기의 최소 실행 흐름(plan.md M2 완료
 // 판정: 브라우저에서 회원가입→로그인→새로고침 유지→탭 종료 후 소멸 확인).
@@ -40,25 +42,29 @@ function AuthenticatedView() {
     return null
   }
   return (
-    <main>
-      <h1>OpenClass</h1>
-      <p>
-        {session.email}로 로그인되어 있습니다. (역할: {session.role})
-      </p>
-      <LogoutButton />
-      {/* REQ-CNL-006 — 인증된 회원이면 항상 노출한다(역할 무관). */}
-      <button type="button" onClick={() => navigate('/enrollments/mine')}>
-        내 수강신청
-      </button>
-      <button type="button" onClick={() => navigate('/waitlist/mine')}>
-        내 대기명단
-      </button>
-      {/* REQ-ADM-001 — 관리자 화면 진입 수단은 role === 'ADMIN'일 때만 노출한다. */}
-      {shouldShowAdminMenu(session.role) && (
-        <button type="button" onClick={() => navigate('/admin/courses')}>
-          관리자
-        </button>
-      )}
+    <main className="flex flex-col gap-6">
+      <header className="flex flex-col gap-3 border-b border-neutral-200 pb-4 dark:border-neutral-800">
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">OpenClass</h1>
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          {session.email}로 로그인되어 있습니다. (역할: {session.role})
+        </p>
+        <LogoutButton />
+        <nav className="flex flex-wrap gap-2">
+          {/* REQ-CNL-006 — 인증된 회원이면 항상 노출한다(역할 무관). */}
+          <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/enrollments/mine')}>
+            내 수강신청
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/waitlist/mine')}>
+            내 대기명단
+          </Button>
+          {/* REQ-ADM-001 — 관리자 화면 진입 수단은 role === 'ADMIN'일 때만 노출한다. */}
+          {shouldShowAdminMenu(session.role) && (
+            <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/admin/courses')}>
+              관리자
+            </Button>
+          )}
+        </nav>
+      </header>
       <CatalogSection />
     </main>
   )
@@ -84,7 +90,7 @@ function AdminRoute({ children }: { children: ReactNode }) {
   if (fallback === 'redirect-home') {
     return <Navigate to="/" replace />
   }
-  return <p role="alert">이 화면에 접근할 권한이 없습니다.</p>
+  return <Alert role="alert" tone="error" className="mt-6">이 화면에 접근할 권한이 없습니다.</Alert>
 }
 
 function AdminCoursesRoute() {
@@ -133,7 +139,7 @@ function AdminCourseEditRoute() {
           onCancel={() => navigate('/admin/courses')}
         />
       ) : (
-        <p role="alert">잘못된 강좌 식별자입니다.</p>
+        <Alert role="alert" tone="error" className="mt-6">잘못된 강좌 식별자입니다.</Alert>
       )}
     </AdminRoute>
   )
@@ -143,22 +149,22 @@ function AnonymousView() {
   const [screen, setScreen] = useState<Screen>('login')
 
   return (
-    <main>
-      <h1>OpenClass</h1>
+    <main className="flex flex-col gap-6">
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">OpenClass</h1>
       {screen === 'signup' ? (
-        <>
+        <div className="flex flex-col items-start gap-3">
           <SignupPage onSignupSuccess={() => setScreen('login')} />
-          <button type="button" onClick={() => setScreen('login')}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setScreen('login')}>
             이미 계정이 있으신가요? 로그인
-          </button>
-        </>
+          </Button>
+        </div>
       ) : (
-        <>
+        <div className="flex flex-col items-start gap-3">
           <LoginPage onLoginSuccess={() => setScreen('login')} />
-          <button type="button" onClick={() => setScreen('signup')}>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setScreen('signup')}>
             계정이 없으신가요? 회원가입
-          </button>
-        </>
+          </Button>
+        </div>
       )}
       {/* REQ-CAT-006 — 세션이 없는 방문자도 카탈로그를 열람할 수 있다. */}
       <CatalogSection />
@@ -187,7 +193,7 @@ function RequestStatusRoute() {
       {session.status === 'authenticated' && Number.isFinite(parsedId) ? (
         <RequestStatusPage requestId={parsedId} token={session.token} />
       ) : (
-        <p role="alert">잘못된 요청 식별자입니다.</p>
+        <Alert role="alert" tone="error" className="mt-6">잘못된 요청 식별자입니다.</Alert>
       )}
     </RequireAuth>
   )
