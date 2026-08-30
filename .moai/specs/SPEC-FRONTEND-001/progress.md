@@ -593,3 +593,301 @@ frontend_quality_gate:
 **결정**: `sub-agent` (Full Pipeline envelope — M1~M7 마일스톤별 순차 manager-develop 위임)
 
 **근거**: SPEC 규모(Tier L, 7개 마일스톤, 3개 이상 도메인)가 Full Pipeline 봉투에 해당하지만, 실제 구현 작업 자체는 코딩 중심이므로 Mode 5(순차 sub-agent)가 정답이다. 각 마일스톤 완료 시 오케스트레이터가 브라우저 실동작 확인 등 검증 배치를 실행한 뒤 다음 마일스톤으로 진행한다.
+
+---
+
+## §H sync-auditor 1차 감사 (2026-08-30)
+
+> 이 절은 `§E.3 known_residual_risks` 3번("인수 기준 86건 전체에 대한 AC-by-AC
+> PASS/FAIL 집계 재검증은 이 절에서 수행하지 않았다 — … 전체 집계 대조는
+> sync-phase(sync-auditor)의 독립 검증 대상으로 남긴다")이 명시적으로 유보한
+> 독립 검증의 수행 기록이다. **이 SPEC에 대한 최초의 sync-audit이며 재감사가
+> 아니다.** 감사자는 `§E.2`의 마일스톤별 자체 보고를 액면 그대로 신뢰하지 않고
+> 기계적 재실행과 소스 직접 대조로 재판정했다.
+
+### H.1 종합 판정
+
+| 항목 | 값 |
+|---|---|
+| 종합 판정 | **FAIL** |
+| 조화평균 | **73.2 / 100** (Tier L 통과선 85) |
+| AC 집계 (86건) | PASS **68** / FAIL **3** / UNVERIFIED **15** |
+| 차단 사유 | 차단(Blocker) 등급 **AC-FE-109**의 `[검사]` 절반이 미충족 (기계적으로 확정) |
+
+FAIL 판정의 근거는 점수가 아니라 **필수 항목 미충족**이다. `acceptance.md` §C가
+AC-FE-109를 차단 등급으로 지정했고("미충족 시 이 SPEC을 완료로 선언할 수 없다"),
+§E.1 완료 판정 체크리스트 6번이 이를 기계적 판정 항목으로 재확인하며, §E.4가
+부분 완료 경로를 명시적으로 삭제했다.
+
+### H.2 차원별 점수
+
+| 차원 | 점수 | 판정 | 근거 (기계적 검증 출력) |
+|---|---|---|---|
+| Functionality (40%) | **72** | **FAIL** | `npx vitest run` → `Test Files 15 passed (15) / Tests 114 passed (114)`, exit=0. 그러나 86건 중 차단 등급 1건이 FAIL이고 15건이 UNVERIFIED. 자동 테스트는 전부 실질적 어서션이며 형식적 통과가 아님을 표본 검증으로 확인 |
+| Security (25%) | **90** | **PASS** | `npm audit` → `found 0 vulnerabilities`(prod·dev 양쪽). `grep -rn "dangerouslySetInnerHTML\|innerHTML\|eval(\|new Function\|document.write" src/` → 0건. `grep -rn "console\." src/` → 0건. `grep -rniE "(api[_-]?key\|secret\|private[_-]?key\|Bearer [A-Za-z0-9]{20})" src/` → 0건. 토큰은 `Authorization: Bearer` 헤더에만 실리고 URL 질의 문자열·로그 경로 0건 |
+| Craft (20%) | **62** | **FAIL** | 커버리지 측정 수단이 **아예 없다** — `grep -n "coverage" package.json vite.config.ts` → 0건, `@vitest/coverage-*` 미설치. TRUST 5 "85% 이상"이 측정 불가이므로 PASS로 셀 수 없다(미측정 ≠ 충족) |
+| Consistency (15%) | **74** | 조건부 | `npx tsc -b --force` exit=0, `npm run lint`(oxlint) exit=0. @MX 태그·모듈 경계·재사용 규율은 우수. 다만 CHANGELOG 주장 2건이 소스와 불일치(F3) |
+
+조화평균 계산: `4 / (1/72 + 1/90 + 1/62 + 1/74)` = **73.2**.
+(가중산술평균은 74.8이나, 감사 규약상 조화평균을 채택한다 — 낮은 차원을 평균이
+가려 주지 않게 하기 위함.)
+
+### H.3 AC 집계 (86건 전수)
+
+`grep -oE '\*\*AC-FE-[0-9]+[a-z]?\*\*' acceptance.md | ... | sort -u | wc -l` → **86**
+(acceptance.md §D.1 자체 검증 명령의 기대값과 일치).
+
+| 검증 수단 | 건수 | PASS | FAIL | UNVERIFIED |
+|---|---|---|---|---|
+| `[검사]` (감사자가 직접 재실행) | 14 | 12 | 2 | 0 |
+| `[자동]` (테스트 스위트 재실행) | 16 | 16 | 0 | 0 |
+| 혼합 (`[자동]+[검사]` / `[수동]+[검사]`) | 3 | 2 | 1 | 0 |
+| `[수동]` (§E.2 브라우저 관측 기록 의존) | 53 | 38 | 0 | 15 |
+| **합계** | **86** | **68** | **3** | **15** |
+
+**FAIL 3건**: AC-FE-109(진성 결함), AC-FE-900·903(명령 문자 그대로는 실패 —
+브랜치 뒤처짐 아티팩트, 아래 F2 참고).
+
+**UNVERIFIED 15건** — `[수동]` AC 중 §E.2 어느 절에도 실제 관측 기록이 없거나
+"미수행"으로 명시된 항목:
+
+| 구간 | AC | 미검증 사유 |
+|---|---|---|
+| SES | AC-FE-021 · 022 · 024 | 회원가입 400(8자 미만)·409(중복 이메일), 로그인 401 오류 경로가 S1~S14 어디에도 없다 (S1은 성공 경로만 수행) |
+| SES | AC-FE-025 | `Authorization: Bearer` 헤더 부착의 네트워크 탭 직접 관측 기록 없음 (인증 호출 성공으로 간접 추정만 가능) |
+| SES | AC-FE-029 | 로그아웃 버튼 클릭 → 토큰 제거 → 인증 화면 접근 불가의 실제 수행 기록 없음 (S8은 탭 격리로 대체) |
+| SES | AC-FE-034 | 비세션 상태에서 인증 필요 경로 직접 진입 시나리오 없음 (M5는 ADMIN 역할 부족 경로만 확인) |
+| CAT | AC-FE-041 | §E.2 M3이 관측한 목록은 `totalPages: 1` — **실제 페이지 이동이 일어나지 않았다**. "새 `page` 값으로 요청이 발생한다"는 미관측 |
+| CAT | AC-FE-046 | §E.2 M3이 "실제 404 브라우저 관측은 미수행"으로 자체 명시 |
+| ENR | AC-FE-068 · 069 | 30초 상한 도달 → 수동 재확인 버튼 → 기존 requestId 재조회. §E.2 M4 잔여 위험이 미관측으로 명시했고 M7 S1~S14에도 대응 시나리오 없음 |
+| ENR | AC-FE-072 | 폴링 화면 언마운트 후 잔여 타이머 호출 0건. 어느 절에도 관측 기록 없음 |
+| ENR | AC-FE-073b | S14는 `sessionStorage` 접수 시각 **보존**만 확인했다. "3초 간격으로 재개"의 간격 자체는 미관측이며, S14 대상 요청은 이미 종단 상태였다 |
+| CNL | AC-FE-105 | §E.2 M6이 "실제 타인 소유 항목에 대한 취소 시도는 수행하지 않았다"로 자체 명시 |
+| CNL | AC-FE-110 | "두 목록 조회가 각각 2건 이상"을 응답 순서와 대조하는 관측 없음 (S10/S11은 1건씩) |
+| CNL | AC-FE-112 | "서로 다른 두 강좌에 대기 중인 계정"이 만들어진 기록 없음 (코드 레벨은 PASS) |
+
+> `[수동]` PASS 38건은 **감사자가 재관측한 것이 아니라 §E.2의 기록을 근거로 한
+> 전달 판정**이다. 기록에 계정명·요청 번호·관측 문구가 구체적으로 남아 있어
+> 조작 정황은 없으나, 감사자의 직접 증거는 아니다(`verification-claim-integrity.md`
+> §3.4 — 미관측을 관측으로 셈하지 않는다).
+
+### H.4 발견 사항 (Findings)
+
+| ID | 등급 | 확신도 | 위치 | 내용 |
+|---|---|---|---|---|
+| **F1** | **Blocker** | 확정(기계적 증명) | `frontend/src/api/endpoints.ts:141`, `frontend/src/api/types.ts:121-127` | **AC-FE-109의 `[검사]` 절반 미충족.** `cancelWaitlistEntry(waitlistEntryId: number, token: string)`와 `WaitlistListItem.position: number`가 **둘 다 맨 `number`** 이므로, `cancelWaitlistEntry(item.position, token)`이 타입 검사를 그대로 통과한다 |
+| **F2** | High | 확정 | 브랜치 `feat/SPEC-FRONTEND-001` (HEAD `b98ab93`) | **AC-FE-900·903이 명령 문자 그대로는 실패한다.** 브랜치가 `main`보다 3커밋 뒤처져 있어 `git diff --name-only main -- src/`가 2줄, `.../SPEC-ENROLLMENT-001`이 4줄을 출력한다 |
+| **F3** | Medium | 확정 | `CHANGELOG.md` (M6 항목, Verification 항목) | **sync-phase 산출 문서의 주장 2건이 소스와 불일치.** ① "대기 취소 대상은 `waitlistEntryId`이며 `position`이 아님을 **타입·로직 양쪽에서** 구별" — 타입 절반이 거짓(F1). ② "인수 기준 …(총 86건) … M1~M6 코드 레벨 … **전부 PASS**" — AC-FE-109로 반증됨 |
+| **F4** | Medium | 확정 | `frontend/package.json`, `frontend/vite.config.ts` | **커버리지 측정 수단 부재.** `@vitest/coverage-v8` 미설치, `coverage` 설정 0건. TRUST 5 Tested(85%+)를 판정할 수 없다 |
+| **F5** | Medium | 확정 | `frontend/vite.config.ts:16` | **`.tsx` 테스트가 구조적으로 발견되지 않는다.** `test.include: ['src/**/*.test.ts']`는 `.tsx`를 포함하지 않고 `environment: 'node'`라 렌더 테스트가 불가능하다. 화면 컴포넌트 15개의 자동 테스트가 0건이며(`find src -name '*.test.tsx' \| wc -l` → 0), 앞으로 누가 `.test.tsx`를 작성해도 **조용히 실행되지 않는다** |
+| **F6** | Low | 확정 | `frontend/src/session/LogoutButton.tsx:19-27` | **로그인 직후에도 과거형 문구가 상시 노출된다.** `session.status === 'authenticated'`일 때 "로그아웃되었습니다. …"가 항상 렌더링된다. §E.2 M2가 부수 관찰로 기록했으나 미수정. AC-FE-030의 사실 내용 요건 자체는 충족하므로 PASS로 두되, 사용자에게 사실과 다른 시제를 보이는 문구다 |
+| **F7** | Low | 확정 | `.moai/specs/SPEC-FRONTEND-001/progress.md` §E.2 M4 vs M7 S9 | **자체 기록 간 모순.** M4는 "종단 도달 후 5초간 … 요청이 **0건** — 자동 폴링이 실제로 멈춤을 확인"이라 적었고, M7 S9는 "'폴링이 실제로 멈췄다'는 네트워크 탭 상의 직접 관측은 **이 세션에서도 하지 못했다**"고 적었다. AC-FE-064는 M4 기록을 근거로 PASS로 판정했으나 두 기록은 화해되지 않았다 |
+| **F8** | Low | 확정 | `frontend/.oxlintrc.json` | **린트 규칙 집합이 얇다.** 명시 규칙 2건(`react/rules-of-hooks`, `react/only-export-components`) + oxlint 기본 correctness 뿐이며, typescript 권장 세트·미사용 변수·부동 Promise 계열 규칙이 없다. `npx oxlint -D all src`를 돌리면 다수 지적이 나온다(스캔 자체는 정상 동작함을 이 명령으로 확인) |
+| F9 | Info | 확정 | 감사 환경 | `Skill("moai-ref-owasp-checklist")`가 이 프로젝트에 설치되어 있지 않아 정본 OWASP 체크리스트를 적재하지 못했다. Security 차원은 수동 grep 프로브 6종으로 대체 수행했다 — **누락을 PASS로 셈하지 않고 Gap으로 기록한다** |
+
+### H.5 F1 — 기계적 증명 (verbatim)
+
+`design.md` §A.1이 이 항목의 판정 기준을 단일 문장으로 못박았다:
+
+> 구체 수단은 run 단계가 정하되(브랜디드 타입·별칭 타입·래퍼 중 택일), **판정
+> 기준은 하나다 — `position`을 취소 함수의 인자로 넘기는 코드가 타입 검사에서
+> 거부되는가.**
+
+실제 구현은 **관례적 방어**(`resolveWaitlistCancelTarget` 헬퍼 + 주석)만 채택했고
+타입 층위 방어(브랜디드/별칭/래퍼 중 어느 것도)를 도입하지 않았다.
+
+인메모리 TypeScript 컴파일 프로브(파일 미생성, 프로젝트 `typescript@6.0.3` 사용):
+
+```
+probe source:
+  import type { WaitlistListItem } from "./src/api/types";
+  import { cancelWaitlistEntry } from "./src/api/endpoints";
+  declare const item: WaitlistListItem;
+  declare const token: string;
+  cancelWaitlistEntry(item.position, token);   // ← AC-FE-109가 거부를 요구하는 코드
+
+출력:
+  TS version: 6.0.3
+  probe diagnostics on the cancelWaitlistEntry(item.position, token) call: 0
+  RESULT: NOT REJECTED by type checker -> AC-FE-109 type-check clause FAILS
+```
+
+관련 시그니처 (verbatim):
+
+```
+frontend/src/api/types.ts:125          position: number
+frontend/src/api/endpoints.ts:141      export function cancelWaitlistEntry(waitlistEntryId: number, token: string): Promise<void>
+```
+
+**영향**: 오늘 배선은 정확하다(`MyWaitlistPage.tsx:53`이 `resolveWaitlistCancelTarget(item)`만
+전달하며, 단위 테스트가 `waitlistEntryId: 5 / position: 999`로 이를 검증한다).
+따라서 **현재 사용자에게 노출된 결함은 없다.** 미충족인 것은 미래 회귀에 대한
+방어다 — `acceptance.md` §C.1이 이 AC를 차단 등급으로 올린 이유가 정확히
+그것이며("본인 소유의 엉뚱한 항목이 오류 없이 취소된다 … 발견이 가장 늦고 피해가
+가장 직접적인 결함 유형"), 타입 방어가 없으면 향후 어떤 편집자도 오배선을
+오류 없이 도입할 수 있다.
+
+**최소 수정 제안** (사다리 5단계 "최소 코드", 신규 의존성 0건):
+
+```ts
+// types.ts — 두 필드를 구조적으로 구별 가능하게 만든다
+export type WaitlistEntryId = number & { readonly __brand: 'WaitlistEntryId' }
+export interface WaitlistListItem {
+  waitlistEntryId: WaitlistEntryId
+  // ... position: number 는 그대로
+}
+// endpoints.ts
+export function cancelWaitlistEntry(waitlistEntryId: WaitlistEntryId, token: string): Promise<void>
+```
+
+이후 `cancelWaitlistEntry(item.position, token)`은 TS2345로 거부되며,
+`resolveWaitlistCancelTarget`의 반환 타입만 `WaitlistEntryId`로 좁히면 화면 코드는
+무변경이다. 회귀 가드로 `// @ts-expect-error` 기반 테스트 1건을 추가하면
+AC-FE-109의 `[검사]` 절반이 기계적으로 고정된다.
+
+### H.6 F2 — AC-FE-900·903 판정의 이중 독해
+
+명령 문자 그대로 (HEAD `b98ab93`):
+
+```
+$ git diff --name-only main -- src/ build.gradle
+src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java
+src/test/java/com/hongseob/openclass_ap/enrollment/EnrollmentQueueResilienceIntegrationTest.java
+lines=2                                    # AC-FE-900 기대값 0 → FAIL
+
+$ git diff --name-only main -- .moai/specs/SPEC-AUTH-001 .moai/specs/SPEC-COURSE-001 .moai/specs/SPEC-ENROLLMENT-001
+.moai/specs/SPEC-ENROLLMENT-001/{acceptance,plan,progress,spec}.md
+lines=4                                    # AC-FE-903 기대값 0 → FAIL
+
+$ git diff --name-only main -- .moai/project/
+lines=0                                    # AC-FE-904 → PASS
+```
+
+귀속 조사 (이 브랜치가 그 파일들을 건드렸는가?):
+
+```
+$ git log --oneline main..HEAD -- src/
+(출력 없음)
+$ git log --oneline main..HEAD -- .moai/specs/SPEC-ENROLLMENT-001
+(출력 없음)
+$ git rev-list --count --left-right origin/main...HEAD
+3	16                                     # main이 3커밋 앞서 있다
+
+$ git log --oneline HEAD..main
+b5ee26e docs(SPEC-ENROLLMENT-001): M8 — 큐 처리 실패 진단 로깅 + 근본 원인 판정 (v0.3.2) (#2)
+73dc983 docs(SPEC-ENROLLMENT-001): plan-audit 1회차(FAIL 0.847) 지적 D1~D5 반영 (v0.3.1 → v0.3.2)
+3632fa3 feat(SPEC-ENROLLMENT-001): in-place amendment v0.3.0 → v0.3.1 - 큐 처리 실패 가능성
+
+$ MB=$(git merge-base main HEAD)   # 872a4fa
+$ git diff --name-only $MB HEAD -- src/ build.gradle                       → 0줄
+$ git diff --name-only $MB HEAD -- .moai/specs/SPEC-{AUTH,COURSE,ENROLLMENT}-001 → 0줄
+$ git diff --name-only $MB HEAD -- .moai/project/                          → 0줄
+```
+
+**판정**: 불변식 **INV-FE-007(백엔드 소스 무변경)은 충족된다** — 이 브랜치는
+백엔드 소스도 다른 SPEC 아티팩트도 한 줄도 건드리지 않았다. 차이는 전적으로
+`main`이 SPEC-ENROLLMENT-001 M8 작업으로 3커밋 전진한 데서 온다. 그러나
+`acceptance.md`가 기록한 **명령 자체는 지금 실패하며**, 그 명령이 차단 등급이므로
+기계적 게이트로는 FAIL이다. PR 생성 전 `main` 리베이스/머지로 해소된다(해소 후
+동일 명령이 0줄을 출력한다).
+
+### H.7 `status: completed` 전이 판정 — **시기상조**
+
+`spec.md` frontmatter는 `status: completed`(sync 커밋 `8ac906e`)이나, 다음 세 근거로
+전이 요건이 충족되지 않았다:
+
+1. `acceptance.md` §E.1 기계적 판정 체크리스트 6번 —
+   "AC-FE-109 통과(`position`을 취소 인자로 넘기는 코드가 타입 검사에서 거부됨)" 미충족(F1).
+2. `acceptance.md` §E.4 — "이 SPEC은 §B.1~§B.7 전부와 §E.2의 S1~S14 전부를
+   충족했을 때만 완료로 선언한다. **부분 완료 경로가 없다.**" §B의 15건이 UNVERIFIED다.
+3. §C 차단 등급 정의 — "미충족 시 이 SPEC을 **완료로 선언할 수 없다**".
+
+감사자는 판정만 기록하며 frontmatter를 되돌리지 않는다 — 상태 전이의 소유자는
+`manager-docs`이고(`spec-frontmatter-schema.md` § Status Transition Ownership Matrix),
+되돌림 여부는 오케스트레이터와 사용자의 결정이다.
+
+### H.8 강점 (균형 기록)
+
+회의적 감사라도 실제로 잘 된 것은 잘 됐다고 적는다:
+
+- **오류 정규화 판정 순서**가 계약으로 고정되어 있고, 회귀 가드 테스트(`errors.test.ts:25`
+  "401-before-code-field")가 그 순서를 직접 지킨다. 401을 `code` 필드보다 먼저 판정하는
+  결정이 실제 코드·테스트 양쪽에 살아 있다.
+- **종단 판정이 화이트리스트가 아니다.** `isTerminalStatus('SOME_FUTURE_VALUE_NEVER_SEEN') === true`를
+  직접 어서션한다 — `acceptance.md` §C.1이 가장 걱정한 미래 무한 폴링 결함이 실제로 막혀 있다.
+- **AC-FE-073a 테스트가 반증적으로 설계됐다.** "재마운트 시각을 0초로 다시 세는 결함이
+  있다면 1000을 반환할 것"이라는 실패 조건이 테스트에 명시돼 있어, 통과가 우연이 아니다.
+- **오류 원문 미노출이 어서션으로 고정**돼 있다(`errors.test.ts:49` —
+  `expect(result.message).not.toMatch(/password|defaultMessage/)`).
+- **재사용 규율**: M5·M6이 M1~M4의 `errors.ts`·`guardLogic.ts`·`catalogModel.ts`·
+  `useRequestStatus`를 수정 없이 소비만 했다(`git diff`로 무변경 확인). 중복 구현 0건.
+- **보안 표면이 깨끗하다**: XSS 싱크 0건, 시크릿 0건, `console.*` 0건, `localStorage` 0건,
+  의존성 취약점 0건, 취소 403/404 통합으로 소유자 열거 방지.
+
+### H.9 권고 (우선순위 순)
+
+1. **[PR 차단] F1 수정** — `WaitlistEntryId` 브랜디드 타입 도입(H.5의 최소 수정) +
+   `@ts-expect-error` 회귀 가드 테스트 1건. AC-FE-109가 차단 등급이므로 이것이 해소되기
+   전에는 `completed`가 성립하지 않는다.
+2. **[PR 차단] F2 해소** — `main`(현 `b5ee26e`) 리베이스 또는 머지 후 AC-FE-900·903
+   명령 재실행하여 0줄 확인.
+3. **[PR 차단] F3 정정** — CHANGELOG의 "타입·로직 양쪽에서 구별"과 "86건 전부 PASS"
+   두 문장을 사실에 맞게 수정(F1 수정 후에는 전자가 참이 되므로 후자만 조정하면 된다).
+4. **[High] F5 수정** — `vite.config.ts`의 `test.include`를 `src/**/*.test.{ts,tsx}`로
+   넓히고 `environment`를 렌더 테스트가 가능한 값으로 조정(또는 `.tsx` 미지원을 주석으로
+   명시). 지금은 누가 `.test.tsx`를 써도 조용히 실행되지 않는다.
+5. **[Medium] F4 해소** — `@vitest/coverage-v8` 도입 후 순수 로직 모듈 기준 커버리지 측정.
+   TRUST 5 Tested 판정을 "미측정"에서 벗어나게 한다.
+6. **[Medium] UNVERIFIED 15건 처리** — (a) 브라우저로 재수행하거나, (b) `acceptance.md`
+   §E.4의 "부분 완료 허용 범위 없음" 조항을 사용자 승인 하에 개정하여 미검증 범위를
+   정직하게 명시한다. **둘 중 하나는 반드시 해야 한다** — 지금 상태는 "검증할 수 있는데
+   하지 않은 것을 완료로 부른" 형태이며, §E.4가 스스로 "미완성의 완곡어법"이라 경고한
+   패턴이다.
+7. **[Low] F6·F7·F8** — 로그아웃 문구 조건부 표시, M4/M7 S9 기록 모순 화해, 린트 규칙 보강.
+
+### H.10 감사 방법 (재현 명령)
+
+```bash
+cd frontend
+npx vitest run                 # exit=0, 15 files / 114 tests
+npm run lint                   # exit=0 (oxlint)
+npx oxlint -D all src          # 스캔 동작 증명용 — 기본 설정이 얇음을 확인
+npx tsc -b --force             # exit=0
+npm run build                  # exit=0, 151 modules
+npm audit                      # found 0 vulnerabilities
+
+grep -rn "http://\|https://" src/                                    # 0 (AC-FE-003)
+grep -rn "dangerouslySetInnerHTML\|innerHTML\|eval(\|new Function" src/   # 0
+grep -rn "console\." src/                                            # 0 (AC-FE-905)
+grep -rn "localStorage" src/ | grep -v '\.test\.'                    # 0 (주석 언급만)
+grep -rn "<input" src/cancellation/                                  # 0 (AC-FE-106)
+
+cd .. && MB=$(git merge-base main HEAD)
+git diff --name-only $MB HEAD -- src/ build.gradle                   # 0 (INV-FE-007)
+git diff --name-only main -- src/ build.gradle                       # 2 (AC-FE-900 문자 그대로 FAIL)
+
+cd .moai/specs/SPEC-FRONTEND-001
+grep -oE '\*\*AC-FE-[0-9]+[a-z]?\*\*' acceptance.md | grep -oE 'AC-FE-[0-9]+[a-z]?' | sort -u | wc -l   # 86
+```
+
+**미검증(Gap)** — 감사자가 관측하지 **못한** 것을 명시한다:
+
+- `[수동]` AC 53건은 브라우저에서 **재관측하지 않았다.** PASS 38건은 §E.2 기록에
+  대한 전달 판정이다.
+- 커버리지 수치는 **측정하지 못했다**(도구 부재, F4). 어떤 커버리지 주장도 하지 않는다.
+- 정본 OWASP 체크리스트를 적재하지 못했다(F9). Security 90점은 수동 grep 프로브
+  6종 + 의존성 감사 기반이며, 체크리스트 전수 대조가 아니다.
+- 백엔드 연동 실동작(실제 API 왕복)은 이 감사에서 수행하지 않았다 — 서버를 기동하지 않았다.
+
+**잔여 위험(Residual risk)**:
+
+- F1 수정이 `resolveWaitlistCancelTarget` 반환 타입 변경을 동반하므로, 브랜디드 타입
+  도입 시 `MyWaitlistPage.tsx`의 `cancellingId` 상태(`number | null`) 비교부에 좁힘이
+  필요할 수 있다 — 수정 후 `tsc -b --force` 재실행이 필수다.
+- UNVERIFIED 15건 중 AC-FE-041(페이지 이동)·046(404)·068/069(상한 재확인)은 **오늘까지
+  단 한 번도 실행된 적이 없는 코드 경로**다. 단위 테스트는 계산 로직만 덮고 있어, 화면
+  배선 결함이 남아 있을 가능성을 배제할 수 없다.
+- `frontend/.env.local`이 작업 트리에 존재한다(gitignore 대상이므로 커밋되지는 않음).
+  로컬 개발 전용 값만 담겨 있음을 확인했다(`VITE_API_BASE_URL=http://localhost:8080`).
+
+---
