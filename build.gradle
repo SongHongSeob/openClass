@@ -43,6 +43,11 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	// SPEC-AUTH-001 in-place amendment (2026-08-30) — TestRestTemplate 기반 실서버
+	// (RANDOM_PORT) 회귀 테스트에 필요. spring-boot-resttestclient의
+	// TestRestTemplateTestAutoConfiguration이 참조하는 RestTemplateBuilder는
+	// Spring Boot 4 모듈화에서 spring-boot-restclient로 분리되어 있다.
+	testImplementation 'org.springframework.boot:spring-boot-restclient'
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:junit-jupiter'
 	testImplementation 'org.testcontainers:postgresql'

@@ -36,6 +36,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * {@code .cors(...)}로 등록되는 {@code CorsFilter}는 Spring Security의 인가
  * 필터보다 앞서 실행되며 유효한 preflight 요청에는 필터 체인을 더 진행시키지
  * 않고 자체적으로 응답하므로, 인증 여부와 무관하게 preflight를 통과시킨다.</p>
+ *
+ * <p><b>{@code /error}(SPEC-AUTH-001 in-place amendment, 2026-08-30)</b> — 서블릿
+ * 컨테이너는 {@code DefaultHandlerExceptionResolver}가 해석한 4xx(예: {@code @Valid}
+ * 실패, 파싱 불가 JSON)를 클라이언트로 돌려주기 전에 내부적으로 {@code /error}로
+ * 다시 포워드한다. {@code /error}가 {@code permitAll} 목록에 없으면 이 포워드된
+ * 요청 자체가 미인증 상태로 {@code anyRequest().authenticated()}에 걸려, 실제
+ * 400 응답이 도달하기 전에 {@code authenticationEntryPoint}가 먼저 401(빈 본문)을
+ * 반환한다 — 완전히 공개된 엔드포인트(예: {@code /api/auth/signup})에서도 발생하는
+ * 결함이었다. {@code MockMvc}는 이 서블릿 내부 포워드를 재현하지 않으므로 기존
+ * MockMvc 테스트는 이 결함을 검출하지 못했다({@code SecurityErrorForwardIntegrationTest}
+ * 참고 — 실제 내장 서버(RANDOM_PORT)로 재현·회귀 방지한다).</p>
  */
 @Configuration
 public class SecurityConfig {
@@ -50,6 +61,7 @@ public class SecurityConfig {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/error").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/courses", "/api/courses/*").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

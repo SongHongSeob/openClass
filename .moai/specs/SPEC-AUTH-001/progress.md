@@ -1,10 +1,10 @@
 ---
 id: SPEC-AUTH-001
 title: "회원 가입·로그인 및 JWT 인증 기반 — 진행 기록"
-version: "0.1.1"
+version: "0.1.2"
 status: completed
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-30
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -12,6 +12,7 @@ module: "src/main/java/com/hongseob/openclass_ap/member"
 lifecycle: spec-anchored
 tags: "auth, progress"
 tier: M
+amendment_of: SPEC-AUTH-001
 ---
 
 # SPEC-AUTH-001 — 진행 기록
@@ -189,6 +190,40 @@ tier: M
 - [x] 로그아웃 제약이 `README.md`에 사용자 대상으로 명시됨
 - [x] plan.md §C.5.1 테스트 픽스처가 테스트 소스 트리에만 존재 (`grep -rn "/api/test/" src/main` → 0건)
 - [x] 미해소 클래리피케이션 마커 없음 (`plan.md` §A.1: "미해소 클래리피케이션 마커가 없다")
+
+### Amendment 1 — `/error` permitAll 수정 (2026-08-30, completed → in-progress → completed)
+
+**배경**: 오케스트레이터가 실행 중인 실서버에 대해 직접 `curl` 재현 테스트를 수행하여 근본 원인을 규명했다. 자세한 배경·근거는 spec.md `## Amendments` Amendment 1 참고.
+
+**RED — 회귀 재현**:
+- 신규 파일: `src/test/java/com/hongseob/openclass_ap/common/config/SecurityErrorForwardIntegrationTest.java` — `@SpringBootTest(webEnvironment = RANDOM_PORT)` + `TestRestTemplate`(MockMvc 아님, 서블릿 컨테이너의 `/error` 내부 포워드를 실제로 재현하기 위함) 기반, 4개 테스트
+- 수정 전 실행: 4/4 FAILED, 전부 `expected: 400 BAD_REQUEST but was: 401 UNAUTHORIZED` (verbatim)
+
+**GREEN — 최소 수정**:
+- `src/main/java/com/hongseob/openclass_ap/common/config/SecurityConfig.java` — `authorizeHttpRequests`에 `.requestMatchers("/error").permitAll()` 1줄 추가(다른 인가 규칙 변경 없음) + 근본 원인을 설명하는 클래스 javadoc 보강
+- `build.gradle` — `spring-boot-resttestclient`가 참조하는 `RestTemplateBuilder`(Spring Boot 4 모듈화로 `spring-boot-restclient`에 분리)를 위해 `testImplementation 'org.springframework.boot:spring-boot-restclient'` 1줄 추가
+- 수정 후 실행: 4/4 PASS
+
+**라이브 서버 재검증 (curl)**:
+```
+$ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST http://localhost:8080/api/auth/signup -H "Content-Type: application/json" -d '{"email":"repro2@local.test","password":"short1"}'
+{"timestamp":"2026-08-30T04:49:51.720Z","status":400,"error":"Bad Request","path":"/api/auth/signup"}
+HTTP_STATUS:400
+$ curl -s -w "\nHTTP_STATUS:%{http_code}\n" -X POST http://localhost:8080/api/auth/signup -H "Content-Type: application/json" -d '{"email":'
+{"timestamp":"2026-08-30T04:49:51.742Z","status":400,"error":"Bad Request","path":"/api/auth/signup"}
+HTTP_STATUS:400
+```
+
+**Blast radius 스팟체크 (신규 테스트 3/4)**:
+- 로그인(`/api/auth/login`) 깨진 JSON → 400 확인
+- ADMIN 토큰으로 `/api/admin/courses` 강좌명 누락 요청 → 400 확인(인증된 보호 엔드포인트에서도 동일 결함이었음을 확인)
+
+**회귀 스윕 — 격리 실행(이 환경의 확립된 검증 방법, §E.2 M2/M3/M4 절 참조)**:
+- `SecurityConfig`와 인접한 9개 테스트 클래스를 각각 격리 실행(`./gradlew test --tests "<클래스>" --rerun`): `SignupIntegrationTest`, `LoginIntegrationTest`, `AuthorizationIntegrationTest`, `CorsIntegrationTest`, `SensitiveLogIntegrationTest`, `AdminSeederTest`, `CourseInputValidationIntegrationTest`, `CourseAdminApiIntegrationTest`, `SecurityErrorForwardIntegrationTest` — **전부 BUILD SUCCESSFUL**, 신규 실패 0건
+- 전체 스위트(`./gradlew test --rerun`)를 3회 시도 — 매회 M2/M3/M4에서 이미 기록한 것과 **동일한 인프라 시그니처**(`CannotCreateTransactionException` → `HikariPool ... ConnectException`)로 일부 클래스가 실패했다. `grep -oE "(Caused by: [a-zA-Z.]+Exception)" <log> | sort | uniq -c` 결과 4종 예외가 각각 동일 건수로 나타나 전부 하나의 연쇄에 속함을 확인, `AssertionFailedError`/`opentest4j` 매칭 **0건** — assertion 실패가 아니라 이 개발 환경의 Docker/Testcontainers 자원 경합(이미 §E.2 M2 절에서 "격리 실행 시 100% 통과"로 확립된 동일 패턴)임을 재확인했다. 이 결함은 `SecurityConfig` 변경과 무관한 `Course*`/`Enrollment*` 클래스에서도 동일하게 발생하여, 이번 변경이 원인이 아님을 뒷받침한다.
+- **잔여 위험**: 이 환경에서 `./gradlew test`(전체 스위트) 단일 실행은 여전히 재시도가 필요할 수 있다(M2에서부터 기록된 기존 잔여 위험, 이번 amendment로 새로 발생한 것 아님).
+
+**MX Tag**: 신규 위험 지점(고 fan_in, 고 complexity) 없음 — `SecurityConfig`의 1줄 인가 규칙 추가는 기존 @MX 태그 상태에 영향 없음.
 
 ## §E.3 Run-phase Audit-Ready Signal
 
