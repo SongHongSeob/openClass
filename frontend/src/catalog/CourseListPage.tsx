@@ -2,7 +2,7 @@
 // 가능하다 — 이 컴포넌트는 세션을 전혀 참조하지 않는다(REQ-CAT-006). 페이지
 // 이동은 백엔드 메타데이터 기반이며(REQ-CAT-002), 자체 분할하지 않는다.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { getCourses } from '../api/endpoints'
 import { ApiError } from '../api/client'
 import type { Course } from '../api/types'
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 
 const PAGE_SIZE = 10
 
@@ -26,6 +27,11 @@ type LoadState =
 
 export function CourseListPage({ onSelectCourse }: CourseListPageProps) {
   const [page, setPage] = useState(0)
+  const [keywordInput, setKeywordInput] = useState('')
+  // REQ-CAT-007(Amendment 1) — 실제 조회에 쓰이는 검색어는 제출(Enter/버튼)
+  // 시점에만 갱신한다. 입력 중인 값(keywordInput)과 분리해 타이핑마다 재조회를
+  // 유발하지 않는다.
+  const [keyword, setKeyword] = useState('')
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   // 목록 조회는 항상 요청 시점의 페이지 메타데이터를 그대로 보존한다
   // (REQ-CAT-002) — 화면이 totalElements/totalPages/currentPage를 재계산하지
@@ -37,7 +43,7 @@ export function CourseListPage({ onSelectCourse }: CourseListPageProps) {
   useEffect(() => {
     let cancelled = false
     setState({ status: 'loading' })
-    getCourses(page, PAGE_SIZE)
+    getCourses(page, PAGE_SIZE, keyword)
       .then((coursePage) => {
         if (cancelled) return
         setControls(computePageControls(coursePage))
@@ -51,11 +57,30 @@ export function CourseListPage({ onSelectCourse }: CourseListPageProps) {
     return () => {
       cancelled = true
     }
-  }, [page])
+  }, [page, keyword])
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setPage(0)
+    setKeyword(keywordInput.trim())
+  }
 
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">강좌 목록</h2>
+      <form onSubmit={handleSearchSubmit} className="flex items-center gap-2" role="search">
+        <Input
+          type="search"
+          value={keywordInput}
+          onChange={(event) => setKeywordInput(event.target.value)}
+          placeholder="강좌명으로 검색"
+          aria-label="강좌명으로 검색"
+          className="max-w-xs"
+        />
+        <Button type="submit" variant="secondary" size="sm">
+          검색
+        </Button>
+      </form>
       {state.status === 'loading' && <p className="text-sm text-neutral-500">불러오는 중…</p>}
       {state.status === 'error' && <Alert role="alert" tone="error">{state.message}</Alert>}
       {state.status === 'loaded' && controls.isEmpty && (
