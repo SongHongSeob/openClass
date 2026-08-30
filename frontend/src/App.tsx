@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router'
+import type { ReactNode } from 'react'
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate, useParams } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SessionProvider } from './session/SessionContext'
 import { useSession } from './session/useSession'
@@ -17,6 +17,7 @@ import { MyEnrollmentsPage } from './cancellation/MyEnrollmentsPage'
 import { MyWaitlistPage } from './cancellation/MyWaitlistPage'
 import { Button } from '@/components/ui/button'
 import { Alert } from '@/components/ui/alert'
+import { Separator } from '@/components/ui/separator'
 
 // M2 — 회원가입·로그인·세션 수립/복원/폐기의 최소 실행 흐름(plan.md M2 완료
 // 판정: 브라우저에서 회원가입→로그인→새로고침 유지→탭 종료 후 소멸 확인).
@@ -24,47 +25,25 @@ import { Alert } from '@/components/ui/alert'
 // 가능해야 하므로(REQ-CAT-006), 인증/비인증 두 화면 모두에서 렌더링한다.
 // M4 — `/requests/:requestId`가 design.md §A.6이 정의한 첫 일급 URL 경로다
 // (REQ-ENR-011의 새로고침·직접 진입 요구가 라우터 없이는 성립하지 않는다 —
-// 과업 지시 B1). 다른 화면(회원가입·로그인·카탈로그)은 여전히 App.tsx의
-// 기존 콜백 기반 지역 상태(useState) 전환을 그대로 유지한다 — 이 화면들은
-// URL 직접 진입이 요구사항이 아니므로 전환할 이유가 없다(과업 지시 B1의
-// 부분 전환 허용).
+// 과업 지시 B1).
 // M6 — `/enrollments/mine`·`/waitlist/mine`을 추가한다(REQ-CNL-006). 확정
 // 취소는 응답의 requestId로 기존 `/requests/:requestId` 폴링 경로로 이동한다
 // (REQ-CNL-001·002 — enrollment/RequestStatusPage.tsx·useRequestStatus.ts를
 // 그대로 재사용, 신규 폴링 코드 없음). 대기명단 취소는 200 동기 응답이므로
 // 같은 화면에 머물러 재조회한다(REQ-CNL-003·009).
-type Screen = 'signup' | 'login'
+// 사용자 요청 후속 작업 — `/login`·`/signup`을 실 라우트로 분리하고(기존
+// App.tsx 지역 state 토글 대체), 좌측 고정 사이드바 + 우측 컨텐츠 레이아웃으로
+// 재구성했다. 기존 라우트/가드/리다이렉트 로직(RequireAuth, RequireRole,
+// `/` 익명·인증 분기)은 전혀 변경하지 않았다 — 렌더링 위치(사이드바 vs 본문)만
+// 바뀌었다.
 
 function AuthenticatedView() {
   const { session } = useSession()
-  const navigate = useNavigate()
   if (session.status !== 'authenticated') {
     return null
   }
   return (
     <main className="flex flex-col gap-6">
-      <header className="flex flex-col gap-3 border-b border-neutral-200 pb-4 dark:border-neutral-800">
-        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">OpenClass</h1>
-        <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          {session.email}로 로그인되어 있습니다. (역할: {session.role})
-        </p>
-        <LogoutButton />
-        <nav className="flex flex-wrap gap-2">
-          {/* REQ-CNL-006 — 인증된 회원이면 항상 노출한다(역할 무관). */}
-          <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/enrollments/mine')}>
-            내 수강신청
-          </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/waitlist/mine')}>
-            내 대기명단
-          </Button>
-          {/* REQ-ADM-001 — 관리자 화면 진입 수단은 role === 'ADMIN'일 때만 노출한다. */}
-          {shouldShowAdminMenu(session.role) && (
-            <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/admin/courses')}>
-              관리자
-            </Button>
-          )}
-        </nav>
-      </header>
       <CatalogSection />
     </main>
   )
@@ -146,26 +125,8 @@ function AdminCourseEditRoute() {
 }
 
 function AnonymousView() {
-  const [screen, setScreen] = useState<Screen>('login')
-
   return (
     <main className="flex flex-col gap-6">
-      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">OpenClass</h1>
-      {screen === 'signup' ? (
-        <div className="flex flex-col items-start gap-3">
-          <SignupPage onSignupSuccess={() => setScreen('login')} />
-          <Button type="button" variant="ghost" size="sm" onClick={() => setScreen('login')}>
-            이미 계정이 있으신가요? 로그인
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-col items-start gap-3">
-          <LoginPage onLoginSuccess={() => setScreen('login')} />
-          <Button type="button" variant="ghost" size="sm" onClick={() => setScreen('signup')}>
-            계정이 없으신가요? 회원가입
-          </Button>
-        </div>
-      )}
       {/* REQ-CAT-006 — 세션이 없는 방문자도 카탈로그를 열람할 수 있다. */}
       <CatalogSection />
     </main>
@@ -175,6 +136,123 @@ function AnonymousView() {
 function Shell() {
   const { session } = useSession()
   return session.status === 'authenticated' ? <AuthenticatedView /> : <AnonymousView />
+}
+
+/**
+ * `/login` 경로 진입점 — 기존 `AnonymousView`의 지역 state(`Screen`) 토글을
+ * 대체한다. 이미 인증된 세션이면 홈으로 되돌린다. `LoginPage`/`SignupPage`
+ * 자체의 폼 필드·제출 핸들러·오류 문구는 전혀 변경하지 않았다 — 성공 시
+ * 콜백만 `navigate()`로 바뀌었다.
+ */
+function LoginRoute() {
+  const navigate = useNavigate()
+  const { session } = useSession()
+  if (session.status === 'authenticated') {
+    return <Navigate to="/" replace />
+  }
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <LoginPage onLoginSuccess={() => navigate('/')} />
+      <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/signup')}>
+        계정이 없으신가요? 회원가입
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * `/signup` 경로 진입점 — 가입 성공 시 기존과 동일하게 로그인 화면으로
+ * 유도하되, 지역 state 대신 `navigate('/login')`을 사용한다.
+ */
+function SignupRoute() {
+  const navigate = useNavigate()
+  const { session } = useSession()
+  if (session.status === 'authenticated') {
+    return <Navigate to="/" replace />
+  }
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <SignupPage onSignupSuccess={() => navigate('/login')} />
+      <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/login')}>
+        이미 계정이 있으신가요? 로그인
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * 좌측 고정 사이드바 — 앱 이름, 내비게이션 링크(강좌목록·내 수강신청·내
+ * 대기명단·관리자), 하단 로그인/회원가입(익명) 또는 로그아웃+이메일(인증)을
+ * 담당한다. 라우팅·가드 로직은 전혀 갖지 않는다 — 순수 내비게이션 UI다.
+ */
+function Sidebar() {
+  const { session } = useSession()
+  const navigate = useNavigate()
+
+  return (
+    <aside className="flex w-56 shrink-0 flex-col gap-4 border-r border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">OpenClass</h1>
+      <Separator className="my-0" />
+      <nav className="flex flex-col gap-1">
+        <Button type="button" variant="ghost" className="justify-start" onClick={() => navigate('/')}>
+          강좌목록
+        </Button>
+        {session.status === 'authenticated' && (
+          <>
+            {/* REQ-CNL-006 — 인증된 회원이면 항상 노출한다(역할 무관). */}
+            <Button type="button" variant="ghost" className="justify-start" onClick={() => navigate('/enrollments/mine')}>
+              내 수강신청
+            </Button>
+            <Button type="button" variant="ghost" className="justify-start" onClick={() => navigate('/waitlist/mine')}>
+              내 대기명단
+            </Button>
+            {/* REQ-ADM-001 — 관리자 화면 진입 수단은 role === 'ADMIN'일 때만 노출한다. */}
+            {shouldShowAdminMenu(session.role) && (
+              <Button type="button" variant="ghost" className="justify-start" onClick={() => navigate('/admin/courses')}>
+                관리자
+              </Button>
+            )}
+          </>
+        )}
+      </nav>
+      <div className="mt-auto flex flex-col gap-2">
+        <Separator className="my-0" />
+        {session.status === 'authenticated' ? (
+          <>
+            <p className="text-xs text-neutral-600 dark:text-neutral-400">
+              {session.email}로 로그인되어 있습니다. (역할: {session.role})
+            </p>
+            <LogoutButton />
+          </>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/login')}>
+              로그인
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => navigate('/signup')}>
+              회원가입
+            </Button>
+          </div>
+        )}
+      </div>
+    </aside>
+  )
+}
+
+/**
+ * 사이드바 + 본문 영역 레이아웃. `<Outlet />`으로 실제 라우트 컨텐츠를
+ * 렌더링한다 — 각 라우트의 가드(RequireAuth/RequireRole/AdminRoute)는
+ * `<Outlet />` 안에서 그대로 평가되므로 가드 로직 자체는 변경되지 않는다.
+ */
+function Layout() {
+  return (
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <div className="flex-1 overflow-y-auto p-6">
+        <Outlet />
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -225,13 +303,17 @@ function MyWaitlistRoute() {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/requests/:requestId" element={<RequestStatusRoute />} />
-      <Route path="/enrollments/mine" element={<MyEnrollmentsRoute />} />
-      <Route path="/waitlist/mine" element={<MyWaitlistRoute />} />
-      <Route path="/admin/courses" element={<AdminCoursesRoute />} />
-      <Route path="/admin/courses/new" element={<AdminCourseCreateRoute />} />
-      <Route path="/admin/courses/:id/edit" element={<AdminCourseEditRoute />} />
-      <Route path="*" element={<Shell />} />
+      <Route element={<Layout />}>
+        <Route path="/login" element={<LoginRoute />} />
+        <Route path="/signup" element={<SignupRoute />} />
+        <Route path="/requests/:requestId" element={<RequestStatusRoute />} />
+        <Route path="/enrollments/mine" element={<MyEnrollmentsRoute />} />
+        <Route path="/waitlist/mine" element={<MyWaitlistRoute />} />
+        <Route path="/admin/courses" element={<AdminCoursesRoute />} />
+        <Route path="/admin/courses/new" element={<AdminCourseCreateRoute />} />
+        <Route path="/admin/courses/:id/edit" element={<AdminCourseEditRoute />} />
+        <Route path="*" element={<Shell />} />
+      </Route>
     </Routes>
   )
 }

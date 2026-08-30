@@ -48,6 +48,20 @@ public class CourseService {
     }
 
     /**
+     * 강좌 목록을 강좌명 키워드로 검색해 페이지 단위로 조회한다(REQ-CAT-007,
+     * SPEC-COURSE-001 Amendment 1). {@code keyword}가 {@code null}이거나
+     * 공백뿐이면 {@link #list(int, int)}와 동일하게 전체 목록을 반환한다 —
+     * 기존 호출자의 동작을 변경하지 않는다(추가 전용 변경).
+     */
+    public CoursePageResponse list(int page, int size, String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            return list(page, size);
+        }
+        Page<Course> coursePage = courseRepository.findByTitleContainingIgnoreCase(keyword, PageRequest.of(page, size));
+        return CoursePageResponse.from(coursePage);
+    }
+
+    /**
      * 강좌 상세를 조회한다. 존재하지 않으면 404로 매핑되는
      * {@link CourseNotFoundException}을 던진다(REQ-CAT-004).
      */

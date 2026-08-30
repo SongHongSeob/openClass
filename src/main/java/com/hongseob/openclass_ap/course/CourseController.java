@@ -28,8 +28,9 @@ public class CourseController {
     @GetMapping
     public ResponseEntity<CoursePageResponse> list(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(courseService.list(page, size));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String keyword) {
+        return ResponseEntity.ok(courseService.list(page, size, keyword));
     }
 
     @GetMapping("/{id}")

@@ -1,10 +1,10 @@
 ---
 id: SPEC-COURSE-001
 title: "강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리"
-version: "0.1.2"
+version: "0.1.3"
 status: completed
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-30
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -13,6 +13,7 @@ lifecycle: spec-anchored
 tags: "course, catalog, admin, capacity, spring-boot"
 tier: M
 depends_on: [SPEC-AUTH-001]
+amendment_of: SPEC-COURSE-001
 ---
 
 # SPEC-COURSE-001 — 강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리
@@ -24,6 +25,16 @@ depends_on: [SPEC-AUTH-001]
 | 0.1.0 | 2026-08-15 | manager-spec | 최초 작성 (draft) — SPEC-ENROLLMENT-001 3분할 중 2번 |
 | 0.1.1 | 2026-08-15 | manager-spec | 2차 감사 지적 반영 — C1(REQ-CRS-005의 저장 계층 금지를 DB enum/CHECK 제약 + 우회 INSERT 단언으로 실제 검증), C2(§A.2 `enrolled_count` "항상 0" 문구를 코드 경로 범위로 정정), C3/E6(REQ-NFR-003에서 TDD 프로세스 절 분리 → plan.md §D 제약으로 이동, DoD 문구 정정) |
 | 0.1.2 | 2026-08-16 | manager-spec | plan-auditor 1회차 FAIL(0.75) 결함 D1~D10 수정. spec.md 해당분: D4(REQ-CRS-004를 INV-CRS-003과 동일 강도로 강화 — "0이 아닌 값으로" 한정 제거, 리셋 포함 일체 변경 금지. 테스트 픽스처 예외는 §A.2 용어 정의로 이관), D5(REQ-ADM-005 정원 축소 거부 응답을 **409 단일 확정** — `GlobalExceptionHandler`의 도메인 규칙 위반 → 409 선례를 따름), D9(REQ-ADM-006에서 타 SPEC 미래 동작에 대한 `shall` 의무 제거 → §D 범위 제외의 교차 참조 주석으로 강등), D1(REQ-CAT-001에 상세 경로 비인증 접근 명시) |
+| 0.1.3 | 2026-08-30 | manager-develop | in-place amendment (completed → in-progress) — 사용자 요청 강좌명 검색 기능 추가. 아래 `## Amendments` 참고 |
+
+## Amendments
+
+### Amendment 1 (2026-08-30)
+
+- **prior completed version**: 0.1.2
+- **prior_completed_sha**: `11557cf13781ea3c714b03901811a501f6c9562a` (`docs(SPEC-COURSE-001): sync-phase artifacts`)
+- **rationale**: 사용자가 강좌 목록에서 강좌명으로 검색할 수 있는 기능을 명시적으로 요청했다. `GET /api/courses`는 기존에 `page`/`size`만 지원했고, §D "카탈로그 고도화" 범위 제외 항목이 "검색·필터·정렬 고도화 (v1은 단순 목록 + 페이지네이션)"를 명시적으로 배제하고 있었다. 이 amendment는 그 배제 항목 중 **단순 키워드 검색(제목 부분 일치, 대소문자 무시)만** 좁게 허용한다 — 필터·정렬·카테고리 등 나머지 고도화 항목은 여전히 범위 밖이다.
+- **scope**: `CourseRepository`에 `findByTitleContainingIgnoreCase` 파생 쿼리 메서드 1건 추가, `CourseService.list`에 `keyword` 분기 추가(부재/공백 시 기존 동작과 동일), `CourseController`에 선택적 `keyword` 쿼리 파라미터 추가. 기존 `page`/`size` 응답 형태(`CoursePageResponse`)는 변경하지 않는다. `enrolled_count` 로직, 관리자 API, 인가 규칙은 이 amendment의 범위 밖이다. 신규 회귀 테스트를 `CourseCatalogApiIntegrationTest`에 추가한다.
 
 ---
 
@@ -76,6 +87,7 @@ depends_on: [SPEC-AUTH-001]
 - **REQ-CAT-004** (Event-driven) — **When** 존재하지 않는 강좌 식별자로 조회 요청이 감지되면, 카탈로그 서비스는 404를 반환 **shall**한다.
 - **REQ-CAT-005** (Ubiquitous) — 카탈로그 조회 API는 부작용 없는 읽기 전용 동작 **shall**이어야 하며, 호출 횟수에 따라 저장된 강좌 상태를 변경 **shall not**한다.
 - **REQ-CAT-006** (Ubiquitous) — 카탈로그 목록은 모집 마감(`CLOSED`) 강좌도 모집 상태와 함께 반환 **shall**하며, 마감을 이유로 목록에서 숨기 **shall not**한다.
+- **REQ-CAT-007** (Event-driven, Amendment 1) — **When** 목록 조회 요청에 `keyword` 파라미터가 포함되면, 카탈로그 서비스는 강좌명에 대소문자 무시 부분 일치하는 강좌만 페이지네이션하여 반환 **shall**한다. `keyword`가 부재하거나 공백뿐이면 기존 동작(전체 목록)과 동일하게 동작 **shall**하며, 일치하는 강좌가 없으면 오류가 아닌 빈 페이지를 반환 **shall**한다.
 
 ### B.3 관리자 강좌 관리 (ADM)
 
@@ -127,7 +139,7 @@ depends_on: [SPEC-AUTH-001]
 
 ### Out of Scope — 카탈로그 고도화
 
-- 검색·필터·정렬 고도화 (v1은 단순 목록 + 페이지네이션)
+- 검색·필터·정렬 고도화 (v1은 단순 목록 + 페이지네이션) — **Amendment 1(2026-08-30)에서 강좌명 부분 일치 검색(REQ-CAT-007)만 좁게 허용으로 변경됨.** 필터·정렬·카테고리 등 나머지 고도화 항목은 여전히 범위 밖이다.
 - 강좌 카테고리 / 태그 / 강사 엔티티
 - 강좌 이미지·첨부 파일 업로드
 - 수강 이력 통계, 대시보드, 리포트

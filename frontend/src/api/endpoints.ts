@@ -38,12 +38,17 @@ export function login(payload: LoginPayload): Promise<LoginResult> {
 }
 
 /**
- * `GET /api/courses?page&size` — REQ-CAT-001·002, spec.md §A.4 3번. 공개
- * 엔드포인트이므로 `token`을 전달하지 않는다(REQ-CAT-006). `page`는
- * 백엔드와 동일하게 0-인덱스다(`CourseController.list` 기본값 `page=0`).
+ * `GET /api/courses?page&size&keyword` — REQ-CAT-001·002·007, spec.md §A.4
+ * 3번(SPEC-COURSE-001 Amendment 1로 `keyword` 추가). 공개 엔드포인트이므로
+ * `token`을 전달하지 않는다(REQ-CAT-006). `page`는 백엔드와 동일하게
+ * 0-인덱스다(`CourseController.list` 기본값 `page=0`). `keyword`가
+ * 비어있거나 공백뿐이면 파라미터 자체를 붙이지 않는다 — 기존 호출자(관리자
+ * 목록 등)는 이 인자를 생략해도 동작이 그대로다(추가 전용 변경).
  */
-export function getCourses(page: number, size: number): Promise<CoursePage> {
-  return apiFetch<CoursePage>(`/api/courses?page=${page}&size=${size}`)
+export function getCourses(page: number, size: number, keyword?: string): Promise<CoursePage> {
+  const trimmed = keyword?.trim()
+  const keywordParam = trimmed ? `&keyword=${encodeURIComponent(trimmed)}` : ''
+  return apiFetch<CoursePage>(`/api/courses?page=${page}&size=${size}${keywordParam}`)
 }
 
 /** `GET /api/courses/{id}` — REQ-CAT-004, spec.md §A.4 4번. 공개 엔드포인트. */
