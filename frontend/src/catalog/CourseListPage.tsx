@@ -8,7 +8,6 @@ import { ApiError } from '../api/client'
 import type { Course } from '../api/types'
 import { computePageControls } from './catalogModel'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -87,22 +86,58 @@ export function CourseListPage({ onSelectCourse }: CourseListPageProps) {
         <p className="text-sm text-neutral-500">표시할 강좌가 없습니다.</p>
       )}
       {state.status === 'loaded' && !controls.isEmpty && (
-        <ul className="flex flex-col gap-3">
-          {state.items.map((course) => (
-            <li key={course.id}>
-              <Card className="flex flex-col gap-1 p-4">
-                <Button type="button" variant="ghost" className="h-auto justify-start px-0 text-left font-semibold" onClick={() => onSelectCourse(course.id)}>
-                  {course.title}
-                </Button>
-                <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                  {' — '}
-                  정원 {course.capacity} · 확정 {course.enrolledCount} · 잔여 {course.remainingCapacity} ·{' '}
-                  <Badge variant={course.status === 'CLOSED' ? 'neutral' : 'accent'}>{course.status}</Badge>
-                </p>
-              </Card>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-md border border-neutral-200 dark:border-neutral-800">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900">
+                <th scope="col" className="px-4 py-2 font-semibold text-neutral-900 dark:text-neutral-100">
+                  강좌명
+                </th>
+                <th scope="col" className="px-4 py-2 font-semibold text-neutral-900 dark:text-neutral-100">
+                  정원
+                </th>
+                <th scope="col" className="px-4 py-2 font-semibold text-neutral-900 dark:text-neutral-100">
+                  확정
+                </th>
+                <th scope="col" className="px-4 py-2 font-semibold text-neutral-900 dark:text-neutral-100">
+                  잔여
+                </th>
+                <th scope="col" className="px-4 py-2 font-semibold text-neutral-900 dark:text-neutral-100">
+                  상태
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.items.map((course, index) => (
+                <tr
+                  key={course.id}
+                  className={
+                    index % 2 === 0
+                      ? 'border-b border-neutral-200 last:border-b-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900'
+                      : 'border-b border-neutral-200 bg-neutral-50/50 last:border-b-0 hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/40 dark:hover:bg-neutral-800'
+                  }
+                >
+                  <td className="px-4 py-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-auto justify-start px-0 text-left font-semibold"
+                      onClick={() => onSelectCourse(course.id)}
+                    >
+                      {course.title}
+                    </Button>
+                  </td>
+                  <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">{course.capacity}</td>
+                  <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">{course.enrolledCount}</td>
+                  <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">{course.remainingCapacity}</td>
+                  <td className="px-4 py-2">
+                    <Badge variant={course.status === 'CLOSED' ? 'neutral' : 'accent'}>{course.status}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {state.status === 'loaded' && !controls.isEmpty && (
         <p className="flex items-center gap-3 text-sm text-neutral-600 dark:text-neutral-400">
