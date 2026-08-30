@@ -1,7 +1,7 @@
 ---
 id: SPEC-ENROLLMENT-001
 title: "선착순 수강신청 큐·워커 및 대기명단 자동 승격 — 진행 기록"
-version: "0.3.0"
+version: "0.3.2"
 status: completed
 created: 2026-08-15
 updated: 2026-08-17
@@ -21,9 +21,11 @@ tier: L
 - `plan_status`: audit-ready — **plan-auditor 2회차 PASS (0.92 / Tier L 임계 0.85)**, must-pass 실패·치명·중대 0건. 후속 경미 지적 6건(N1~N6)은 v0.2.2에서 전건 해소
 - 산출물: `spec.md`, `plan.md`, `acceptance.md`, `design.md`, `research.md`, `progress.md` — **Tier L 필수 5종 전부 + 진행 기록**, status: draft
 - Tier 판정: **L** (예상 16~18 프로덕션 파일 + 10~12 테스트 파일, 동시성 모델이 프로젝트 전체에 헌법적 영향)
-- 요구사항 **59건** + 불변식 **10건** = **69건**, 인수 기준 **58건**, 미대응 0건 (acceptance.md §D.2 — 매트릭스 69행)
+- 요구사항 **63건** + 불변식 **11건** = **74건**, 인수 기준 **61건**, 미대응 0건 (acceptance.md §D.2 — 매트릭스 74행)
 
-  > **v0.3.0 제자리 개정 반영값이다.** v0.2.2(= M1~M6 run 범위)에서는 요구사항 53 + 불변식 9 = 62, 인수 기준 53이었다. 아래 §E.3의 `ac_scope: AC-ENR-001..AC-ENR-053` · `ac_pass_count: 53` · `requirements_scope ... (53건)`은 **그 시점의 기록으로 정확하며 수정 대상이 아니다** — 신설분(REQ-LST-001~006 / INV-ENR-010 / AC-ENR-054~058)은 M7 미구현 상태이므로 run 증거에 포함될 수 없다. 개정 배경은 spec.md `## Amendments`, plan.md §A.3 참조.
+  > **v0.3.2 반영값이다.** 개정 단계별 값은 다음과 같다 — v0.3.0에서 요구사항 59 + 불변식 10 = 69, 인수 기준 58이었고, v0.3.1에서 REQ-DIAG-001~003 · INV-ENR-011 · AC-ENR-059~061이 추가되어 62 + 11 = 73, 인수 기준 61이 되었으며, v0.3.2에서 plan-audit 1회차 지적 D5로 REQ-DIAG-004가 추가되어 **63 + 11 = 74, 인수 기준 61**(AC 신설 없음 — AC-ENR-061의 대응 요구사항 재연결만)이 되었다.
+
+  > **v0.3.0 제자리 개정 시점의 기록.** v0.2.2(= M1~M6 run 범위)에서는 요구사항 53 + 불변식 9 = 62, 인수 기준 53이었다. 아래 §E.3의 `ac_scope: AC-ENR-001..AC-ENR-053` · `ac_pass_count: 53` · `requirements_scope ... (53건)`은 **그 시점의 기록으로 정확하며 수정 대상이 아니다** — 신설분(REQ-LST-001~006 / INV-ENR-010 / AC-ENR-054~058)은 M7 미구현 상태이므로 run 증거에 포함될 수 없다. 개정 배경은 spec.md `## Amendments`, plan.md §A.3 참조.
 
   > 이 줄은 v0.2.1까지 "요구사항 49건 + 불변식 8건 = 57건, 인수 기준 49건 … 기계 검증 완료"로 남아 있었다. 2차 감사(E1·E2) 반영으로 요구사항 4건·불변식 1건·AC 4건이 추가된 뒤 갱신되지 않은 값이며, **틀린 숫자에 "기계 검증 완료"가 붙어 있던 것**이므로 단순 노후화가 아니라 검증 무결성 문제였다 (2회차 감사 지적 N3). v0.2.2에서 acceptance.md §D.2 매트릭스를 다시 세어 정정했다.
 - 미해소 클래리피케이션 마커: **0건** (SPEC 3분할 / 인증 JWT / 프론트엔드 백엔드 우선 — 모두 사용자 결정으로 확정)
@@ -75,6 +77,48 @@ Implementation Kickoff Approval → run (M1부터). 선행 `SPEC-AUTH-001`·`SPE
 
 Implementation Kickoff Approval → run (M7). 진입 시 Phase 1 plan-audit이 hash 변경으로 재실행된다.
 
+### v0.3.1 제자리 개정 (amendment) — 큐 처리 실패 진단 / M8 plan-phase signal
+
+> **이 개정은 기능 추가가 아니라 진단·버그 수정 마일스톤이다.** M1~M7은 전부 "새 동작을 만드는" 마일스톤이었으나 M8은 (Step A) 이미 있는 실패 경로에 **관측 수단**을 더하고, (Step B) 그 관측 결과에 따라 조사·조치한다. 위 v0.3.0 개정 절과 §E.2 M1~M7 기록은 **수정 대상이 아니며 그대로 유효하다.**
+
+- `plan_status`: audit-ready (개정분) — **plan-auditor 미실행.** 이 개정은 M1~M7의 설계·동작을 변경하지 않고 실패 경로에 기록만 추가하므로 전면 재감사를 전제하지 않는다. 다만 `spec.md`·`plan.md`·`acceptance.md`가 수정되어 **plan-artifact hash가 변경**되었으므로, `.claude/rules/moai/workflow/spec-workflow.md` § Phase 1 Plan Audit Gate의 skip 조건 3(artifact-hash unchanged)이 깨졌다 — **다음 `/moai run` 진입 시 Phase 1 plan-audit이 재실행된다.** 정상 동작이며 우회 대상이 아니다.
+- 상태 전이: `completed → in-progress` (spec.md frontmatter). `amendment_of: SPEC-ENROLLMENT-001`(자기 참조)은 v0.3.0에서 선언되어 그대로 유지된다. 직전 완료 SHA: `c80087e66ff940ca7a932f1780fc79a8a4586447` (§E.4 addendum `sync_commit_sha` — M7 sync-phase 마무리 커밋)
+- 개정 산출물: `spec.md`(HISTORY·`## Amendments` § 개정 2·§A.7·§B.9·INV-ENR-011·§D·§E 추가), `plan.md`(§A.4·§C.9·§F M8·§G 안티패턴 10행 추가), `acceptance.md`(AC-ENR-059~061·매트릭스 **5행** 추가·§D.4 3항 추가), `progress.md`(이 절). **`design.md`는 변경하지 않았다** — 이 개정은 API 계약도 데이터 모델도 처리 흐름도 바꾸지 않는다.
+- 신설: 요구사항 **4건**(REQ-DIAG-001 ~ 004 — 004는 v0.3.2에서 추가) + 불변식 **1건**(INV-ENR-011) + 인수 기준 **3건**(AC-ENR-059 ~ 061)
+- 기존 항목 변경: **0건** — REQ·INV·AC 어느 것도 수정·삭제하지 않았다. (v0.3.2에서 AC-ENR-061의 판정 기준을 정밀화하고 대응 요구사항을 재연결했으나 AC의 신설·삭제는 없다.)
+
+**발견 경위와 확인 사실**
+
+후속 `SPEC-FRONTEND-001`의 run 단계 브라우저 검증 중 `POST /api/courses/{courseId}/enrollments` 요청이 **재현율 100%**(백엔드 3회 이상 재기동에 걸쳐 5회 이상 시도, 로컬 개발 환경의 datasource는 원격 Supabase 세션 풀러 `aws-0-ap-southeast-1.pooler.supabase.com`)로 `result='FAILED'`로 종결되는 현상이 관측되었다. 로그에는 `큐 요청 처리 시작 requestId=N requestType=ENROLL` / `큐 요청 처리 종료 requestId=N result=FAILED` 두 줄만 남고 예외 정보는 전무했다.
+
+plan-phase에서 `src/main/java/.../enrollment/worker/EnrollmentQueueWorker.java`를 **직접 재확인**하여 원인 구조를 특정했다 — `drainQueue()` 60~74행 중 **65~69행**의 `catch (RuntimeException ex)`가 포착한 `ex`를 **선언 후 한 번도 사용하지 않고 폐기**한다. 68행 `recordFailure(id)`는 예외를 인자로 받지 않으며 그 구현(`EnrollmentRequestProcessor` 115~123행)도 `result=FAILED` 한 줄만 남긴다. 관측된 로그 두 줄은 `processOne` 99행(시작)과 `recordFailure` 121행(종료)에서 나온 것이며, 정상 종료 로그(`processOne` 102행)가 없다는 사실이 예외 발생을 확증한다.
+
+**근본 원인은 아직 미지 — 이 개정이 규정하지 않는 것**
+
+`processOne`이 왜 예외를 던지는지는 **알려져 있지 않다.** 후보는 (a) `ENROLL` 디스패치 경로의 애플리케이션 결함, (b) 원격 세션 풀러를 쓰는 로컬 환경 고유의 네트워크/커넥션 요인, (c) 그 밖. **관측 없이는 판정할 수 없으므로** 요구사항으로는 관측 가능성(REQ-DIAG-001~003)과 그 관측 결과의 기록 의무(REQ-DIAG-004 — v0.3.2 추가)만 규정하고, **근본 원인의 수정 내용**은 규정하지 않은 채 M8 Step B의 산출물로 두었다. 추측에 근거한 수정은 plan.md §G에서 명시적으로 금지된다.
+
+- **잔여 검증 부채**: AC-ENR-059 ~ 061은 **전건 미검증(M8 미구현)**. §E.2 / §E.3의 run 증거는 M1~M7(AC-ENR-001 ~ 058) 범위이며 이 개정으로 무효화되지 않는다. M8 구현 후 그 증거(특히 AC-ENR-061이 요구하는 **실제 관측된 예외 상세와 (a)/(b) 판정**)는 manager-develop이 §E.2 / §E.3에 기록한다 — 이 절(§E.1)은 plan-phase 신호만 담는다.
+- **재감사자를 위한 판정 안내**: M8은 "코드 결함을 고쳤다"와 "외부 요인으로 확인하고 기록했다" **두 가지 모두를 유효한 완료 상태로 인정**한다 (plan.md §F M8 전체 완료 판정). §E.2 M8 절만 읽고 어느 쪽인지 판별할 수 있어야 하며, (b)로 판정된 경우 근본 원인 미수정을 이유로 미완료 처리하지 않는다.
+
+### v0.3.2 — plan-audit 1회차(FAIL 0.847) 지적 D1~D5 반영
+
+`.moai/reports/plan-audit/SPEC-ENROLLMENT-001-v0.3.1-review-1.md` — **FAIL 0.847** (Tier L 임계 0.85 대비 **-0.003**), **must-pass 방화벽 전건 통과**. 지적 5건(중대 3 · 경미 2)을 전건 반영했다. 설계 변경은 없으며, 문서 정확성·판정 기준·요구사항 커버리지 교정이다.
+
+| 지적 | 등급 | 무엇이 어긋나 있었나 | 반영 |
+|---|---|---|---|
+| **D1** | 중대 | `EnrollmentQueueWorker.drainQueue()` catch 블록 행 번호가 **한 행씩 밀려** 인용되어 있었다(`66~70행`). 실제는 `65~69행`이며, 인용 코드 블록은 블록 **밖**인 `processed++;`(70행)를 포함하고 있었다 — **직접 확인했다고 단언한 검증 주장의 근거가 실제 소스와 어긋난 상태** | 4개소 전부 정정: spec.md §A.7.1(행 범위 + 코드 블록 재번호 + `68행 선언`→`67행` + `69행 recordFailure`→`68행`), plan.md §A.4, plan.md §F M8 Step A, progress.md §E.1(아래 "발견 경위"). `EnrollmentRequestProcessor` 인용(115~123 / 99 / 102 / 121)은 감사자가 정확함을 확인하여 **손대지 않았다** |
+| **D2** | 중대 | AC-ENR-061의 Given이 "(또는 그와 **동종의** 실패)"를 허용하여, 테스트 전용 주입 훅이 던진 깨끗한 `IllegalStateException`으로 이 AC를 충족시킬 수 있었다 — **실제 실패를 한 번도 관측하지 않고 Step B를 종결**할 수 있는 구멍 | 해당 괄호 문구 삭제 + **주입 실패 배제 조건** 신설: 기록된 예외의 스택 트레이스 **상단 프레임이 `EnrollmentFailureInjector` 계열을 가리키면 불충족**. 재감사자가 기록된 프레임 클래스명을 코드베이스와 대조하여 기계적으로 판정한다 |
+| **D3** | 중대 | AC-ENR-061 5번의 (b) 판정 근거가 "예외 클래스의 **소속 패키지**가 이 코드베이스 밖"으로 적혀 plan.md §F M8의 **유래(origin) 기준** 분기 정의와 모순되었다. 그대로 두면 코드베이스가 유발한 NPE를 "JDK 패키지이므로 외부"로 오분류하여 **무수정 종료 경로**를 탈 수 있었다 | 5번 항목을 유래 기준으로 재작성(상단 프레임이 이 코드베이스 클래스가 아님 + 드라이버·풀러·네트워크 계층 시그니처)하고 **패키지 소속만으로는 불충분**함을 NPE 예시와 함께 명시. plan.md §F M8 Step B를 **규범적 정의**로 교차 참조하고, 그 절에도 정의를 명문화 |
+| **D4** | 경미 | 자매 산출물 3종이 `status: completed`인 채 spec.md만 `in-progress`여서, 의도된 규약인지 드리프트인지 문서만으로 판별 불가 | **(b)안 채택** — v0.3.0 개정(커밋 `7745692`)에서 자매 3종이 `version`만 올리고 `status`를 유지한 것이 확립된 패턴임을 확인하고, 그것이 **의도된 규약**임을 spec.md `## Amendments` § 개정 2에 명문화. 자매 3종의 `status`는 그대로 두고 `version`만 `0.3.2`로 올렸다 |
+| **D5** | 경미 | AC-ENR-061이 REQ-DIAG-001로 추적되지만, REQ-DIAG-001은 "예외가 로그에 남을 것"만 요구할 뿐 Step B의 **조사 수행·결과 기록 의무**를 부과하지 않는다 — 인수 기준이 요구사항보다 더 많은 것을 요구하는 상태 | **(a)안 채택** — spec.md §B.9에 **REQ-DIAG-004**(Event-driven) 신설: 관측된 예외의 타입 전체 이름·메시지 원문·스택 트레이스 상단 프레임 + (a)/(b) 판정 및 근거를 progress.md §E.2 M8 절에 기록. AC-ENR-061을 REQ-DIAG-004로 재연결하고 매트릭스·집계·완료 정의의 건수를 **62 → 63 요구사항 / 73 → 74행**으로 일괄 갱신(인수 기준 61건은 불변) |
+
+- **재감사 필요**: 이 반영으로 `spec.md`·`plan.md`·`acceptance.md`가 다시 수정되어 plan-artifact hash가 변경되었다. plan-auditor 2회차 확인이 필요하며, 그 실행은 오케스트레이터가 수행한다.
+- **미검증 상태 불변**: AC-ENR-059 ~ 061과 REQ-DIAG-001 ~ 004는 여전히 **M8 미구현**이다. 이 반영은 문서 교정이며 구현 증거를 추가하지 않는다.
+
+### 다음 단계 (v0.3.1 개정분)
+
+Implementation Kickoff Approval → run (M8). **Step A(로깅) → Step B(조사·판정) 순서는 협상 대상이 아니다.** 진입 시 Phase 1 plan-audit이 hash 변경으로 재실행된다.
+
 ## §F Phase 4 Mode Selection
 
 **Input parameters**:
@@ -92,6 +136,23 @@ Implementation Kickoff Approval → run (M7). 진입 시 Phase 1 plan-audit이 h
 **Route**: **Route B (PR 기반)** — Tier L이므로 spec-workflow.md § SPEC Phase Discipline에 따라 main 직접 커밋이 아닌 별도 브랜치 + PR 방식을 따른다. `feat/SPEC-ENROLLMENT-001` 브랜치 생성 완료.
 
 **Implementation Kickoff Approval confirmation**: obtained via AskUserQuestion — **마일스톤별 확인(semi-autonomous progression)** 선택. 동시성 버그의 위험도가 높아 각 마일스톤 완료 시 사용자 확인을 거친 뒤 다음 단계로 진행한다.
+
+### M8 (v0.3.2 제자리 개정) — Phase 4 Mode Selection
+
+**Input parameters**:
+- tier: L (spec.md frontmatter 유지)
+- scope (file count): `EnrollmentQueueWorker.java` 1개 + `enrollment`/`waitlist` catch 블록 전수 확인(최대 소수 개), 테스트 1-2개 (기존 `ControllableFailureInjector` + `ListAppender` 하네스 재사용)
+- domain count: 1 (기존 Java/Spring Boot 백엔드 도메인, 신규 파일 없음)
+- file language mix: 100% Java
+- concurrency benefit: LOW (단일 catch 블록 로깅 추가 + 순차적 Step A → Step B 의존, 코딩 작업)
+
+**Decision**: sub-agent (Mode 5)
+
+**Justification**: M1~M6과 동일한 근거 — 단일 도메인 소규모 코딩 작업이며, plan.md §F M8이 명시적으로 Step B를 Step A보다 먼저 시도하는 것을 금지(§G 안티패턴)하므로 두 단계가 순차 의존적이다. 병렬화 대상이 없다.
+
+**Route**: Route B (PR 기반, Tier L) — 기존 `feat/SPEC-ENROLLMENT-001` 브랜치는 PR #1 병합으로 이미 소진되어(main 대비 0 unmerged commit) 재사용 부적절 → main HEAD(73dc983)에서 **새로 재생성**.
+
+**Implementation Kickoff Approval confirmation**: obtained via AskUserQuestion — **지금 시작** 선택 (plan-auditor 2차 델타 재감사 PASS 0.961 확인 직후).
 
 ## §E.2 Run-phase Evidence
 
@@ -1184,6 +1245,174 @@ $ git diff --stat -- src/main/java/.../member src/main/java/.../common/config/Se
 
 M7이 이 v0.3.0 개정의 마지막(그리고 유일한) run-phase 마일스톤이다. spec.md §D.4 완료 정의의 "AC-ENR-001~058이 전부 통과한다" 조건이 이번 기록으로 충족된다 — M1~M6(AC-001~053)은 §E.3의 기존 기록, M7(AC-054~058)은 이번 §E.2 기록이다. §E.3 아래에 갱신된 run-phase 전체 완료 신호를 기록했다. 오케스트레이터가 사용자와 확인한 뒤 sync-phase(manager-docs/manager-git)로 핸드오프할지 결정한다.
 
+### M8 — 큐 처리 실패 진단 (v0.3.1/v0.3.2 제자리 개정) — **Step A만 수행, Step B는 별도 델타**
+
+이 절은 Step A(실패 예외 로깅, 필수·무조건)만 기록한다. Step B(근본 원인 조사·판정)는 plan.md §F M8이 정한 순서대로 Step A 완료 후 별도로 수행하며, 이 delegation의 범위에 포함되지 않는다.
+
+**변경 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `enrollment/worker/EnrollmentQueueWorker.java` (수정) | `drainQueue()`의 `catch (RuntimeException ex)` 블록에서 `recordFailure(id)` 호출 **직전에** `log.warn("큐 요청 처리 실패 requestId={}", id, ex)`로 예외를 기록(§C.9 결정 1·2·3). `requestType` 재조회는 하지 않는다(§C.9 결정 2). 제어 흐름·트랜잭션 경계·반환값은 한 줄도 바꾸지 않았다(`git diff` 확인 — 추가된 것은 로거 필드 선언 + import 2건 + `log.warn` 호출 1줄뿐이다). |
+| `enrollment/EnrollmentQueueResilienceIntegrationTest.java` (수정) | 신규 테스트 메서드 1건 추가 — 기존 `ControllableFailureInjector`(M2) + logback `ListAppender`(M4/M6 확립 패턴, §C.9 결정 5) 재사용. 신규 테스트 인프라 0건(§D "신규 인프라 추가 금지" 충족). |
+
+**전수 catch 블록 검사 결과 (REQ-DIAG-002, AC-ENR-060)**
+
+```
+$ grep -rn "catch (" src/main/java/com/hongseob/openclass_ap/enrollment/ src/main/java/com/hongseob/openclass_ap/waitlist/
+src/main/java/com/hongseob/openclass_ap/enrollment/worker/EnrollmentQueueWorker.java:67:                } catch (RuntimeException ex) {
+```
+
+발견된 catch 블록은 **1건**(위 `drainQueue()` 블록 자체)뿐이며, plan.md §D.2가 예상한 개수("프로덕션 1~2 파일")와 일치한다. 이 1건이 이번 수정으로 예외를 `log.warn` 인자로 전달하도록 고쳤으므로, 검사 시점 기준 `enrollment`/`waitlist` 프로덕션 소스에 예외를 포착한 뒤 무기록 폐기하는 catch 블록은 **0건**이다.
+
+**AC PASS/FAIL 매트릭스**
+
+| AC | 상태 | 검증 명령(격리 실행) | 실제 출력 |
+|---|---|---|---|
+| AC-ENR-059 | PASS | `./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest"` | `build/test-results/test/TEST-...EnrollmentQueueResilienceIntegrationTest.xml` → `tests="3" skipped="0" failures="0" errors="0"` (기존 2건 + 신규 1건) |
+| AC-ENR-060 | PASS | 위 grep 명령(전수 검사) | 무기록 폐기 catch 블록 0건(위 표) |
+
+**AC-ENR-059 실제 관측 로그 (ListAppender 캡처, 신규 테스트 메서드 실행 결과 원문 인용)**
+
+```
+2026-08-17T22:21:47.654+09:00  WARN 10409 --- [openclass-ap] [    Test worker] c.h.o.e.worker.EnrollmentQueueWorker     : 큐 요청 처리 실패 requestId=3
+
+java.lang.IllegalStateException: AC-ENR-016/017 테스트 전용 강제 실패 주입: requestId=3
+	at com.hongseob.openclass_ap.enrollment.worker.fixture.EnrollmentFailureInjectorTestConfig$ControllableFailureInjector.afterEnrollmentPersisted(EnrollmentFailureInjectorTestConfig.java:46) ~[test/:na]
+```
+
+이 로그 이벤트에서 다음 5요소가 전부 확인된다: (1) 수준 `WARN`(`ILoggingEvent.getLevel()` 비교, 테스트가 `Level.WARN` 이상만 필터), (2) `requestId=3` 포함(포맷된 메시지), (3) 예외 타입 `java.lang.IllegalStateException`(`ThrowableProxy.getClassName()`이 `IllegalStateException.class.getName()`과 일치), (4) 예외 메시지에 주입 문자열 포함(`ThrowableProxy.getMessage()`), (5) 스택 트레이스 프레임 1개 이상(`getStackTraceElementProxyArray().length > 0`). 신규 테스트 메서드는 이 5개 단언을 전부 개별로 수행한다.
+
+**AC-ENR-016/017 동작 유지 확인 (AC-ENR-059 "또한" 절)**
+
+같은 테스트 메서드 안에서 확인: 첫 번째·세 번째 요청은 `result=SUCCESS`로 정상 종단, 두 번째 요청(`r2`)은 `state=DONE`·`result=FAILED`, `enrollment` 행 수 2건(m1·m3만), `enrolled_count`도 2 — 로깅 추가가 실패 격리(REQ-WRK-009)·처리 원자성(REQ-WRK-010) 동작을 바꾸지 않았다.
+
+**빌드 검증**
+
+```
+$ ./gradlew compileJava -x test   → BUILD SUCCESSFUL, exit 0
+$ ./gradlew compileTestJava       → BUILD SUCCESSFUL, exit 0
+```
+
+**회귀 검증 (plan.md §F M8 전체 완료 판정 "회귀 조건" — M2 실패 격리·원자성 + M6 추적성)**
+
+```
+$ ./gradlew test --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueResilienceIntegrationTest" --tests "com.hongseob.openclass_ap.enrollment.EnrollmentQueueProcessingTraceabilityIntegrationTest"
+→ BUILD SUCCESSFUL
+→ EnrollmentQueueResilienceIntegrationTest: tests="3" failures="0" errors="0" (AC-ENR-016/017 대응, M2)
+→ EnrollmentQueueProcessingTraceabilityIntegrationTest: tests="1" failures="0" errors="0" (AC-ENR-047 대응, M6)
+```
+
+두 클래스 모두 격리 실행으로 무손상 확인 — plan.md §F M8이 명시한 회귀 대상과 정확히 일치한다.
+
+**정적 검증**
+
+```
+$ grep -rn 'AskUserQuestion\|mcp__askuser' src/main/java/com/hongseob/openclass_ap/enrollment/ src/main/java/com/hongseob/openclass_ap/waitlist/
+(출력 없음 — exit 1, 매치 0건)
+```
+
+**환경 플레이키니스 관측 (코드 결함 아님, project memory와 일치 — M4~M7이 이미 반복 관측한 패턴)**
+
+전체 `./gradlew build`(48개 테스트 클래스 동시 실행)를 별도로 시도했을 때, `EnrollmentCancelWorkerDispatchIntegrationTest`·`EnrollmentCapacityIncreaseWorkerDispatchIntegrationTest`·`EnrollmentClaimExclusivityConcurrencyTest`·`EnrollmentDbConstraintBackstopIntegrationTest`(이번 M8과 무관한 M2~M3 기존 테스트) 10건이 `CannotCreateTransactionException`/`Connection refused`로 실패했다 — 로컬 Docker Testcontainers 연결 자원 고갈로 M4~M7 progress.md가 이미 반복 기록한 것과 동일한 패턴이며, 이번 M8 변경과는 무관하다. 이 실행은 20분 이상 정체되어 중단(`--stop`)했고, 대신 plan.md §F M8이 명시한 정확한 회귀 대상(M2 실패 격리 + M6 추적성) 2개 클래스만 격리 실행하여 위와 같이 PASS를 확인했다. 이 대체는 §D.2(추적성 매트릭스)나 AC 판정 기준을 변경하지 않는다 — 두 회귀 클래스의 격리 실행 결과가 회귀 조건이 요구하는 증거다.
+
+**Step A 완료 조건 재확인(plan.md §F M8)**: AC-ENR-059와 AC-ENR-060이 함께 PASS — 강제 주입한 실패에서 5요소(WARN 이상·requestId·예외 타입·예외 메시지·스택 트레이스)가 모두 확인되었고, 같은 테스트에서 AC-ENR-016/017의 기존 동작(다른 요청 정상 종단·`result='FAILED'` 보존)이 유지됨을 함께 확인했다.
+
+**다음 단계**
+
+Step A는 완료되었다. Step B(실제 실패 재현·판정·progress.md 기록)는 plan.md §F M8이 정한 순서(Step A 완료 후에만 착수)에 따라 별도 델타로 수행하며, 이 M8 Step A delegation의 범위에는 포함하지 않았다 — 오케스트레이터의 명시 지시("Step B는 시작하지 않는다")를 따랐다.
+
+### M8 Step B — 근본 원인 조사·판정 (AC-ENR-061)
+
+**재현 절차 (실제 흐름, 테스트 주입 아님)**
+
+Step A가 반영된 상태로 백엔드를 로컬에서 새로 기동(`ADMIN_EMAIL`/`ADMIN_PASSWORD` 환경변수 주입 후 `./gradlew bootRun`, `spring.profiles.active=local` 기본값 → `application-local.properties`가 가리키는 원격 Supabase `postgres` 데이터베이스에 실제로 연결)한 뒤, 실제 HTTP 요청으로 접수했다:
+
+1. `POST /api/auth/signup` → 회원 가입(`m8-diag-member@example.com`)
+2. `POST /api/auth/login` → 회원 JWT 발급
+3. `POST /api/admin/courses` (관리자 JWT) → 강좌 생성(`id=7`)
+4. `POST /api/courses/7/enrollments` (회원 JWT) → `{"requestId":8}`, HTTP 202
+5. 워커(폴링 200ms)가 자동 처리 → `GET /api/enrollment-requests/8` → `{"requestId":8,"status":"FAILED",...}`, **1회 시도 만에 재현**(spec.md §A.7이 기록한 재현율 100%와 일치)
+
+이 흐름은 `EnrollmentFailureInjector`/`ControllableFailureInjector` 등 테스트 전용 주입 훅을 전혀 거치지 않는다 — 실제 컨트롤러 → 실제 큐 적재 → 실제 워커 → 실제 DB write 경로다.
+
+**1. 실제로 관측된 예외의 타입 전체 이름**
+
+`org.springframework.dao.DataIntegrityViolationException` (원인 체인: `org.hibernate.exception.ConstraintViolationException` ← `org.postgresql.util.PSQLException`)
+
+**2. 예외 메시지 원문**
+
+```
+could not execute statement [ERROR: null value in column "course_term_id" of relation "enrollment" violates not-null constraint
+  Detail: Failing row contains (7, null, 11, ENROLLED, null, 2026-08-17 14:06:46.57037+00, null, null, 7, 2026-08-17 23:06:46.973213).] [insert into enrollment (cancelled_at,course_id,enrolled_at,member_id,status) values (?,?,?,?,?)]; SQL [insert into enrollment (cancelled_at,course_id,enrolled_at,member_id,status) values (?,?,?,?,?)]; constraint [course_term_id]
+```
+
+애플리케이션 로그의 실제 WARN 이벤트 원문(Step A 로깅이 기록한 것):
+
+```
+2026-08-17T23:06:47.139+09:00  WARN 16240 --- [openclass-ap] [   scheduling-1] c.h.o.e.worker.EnrollmentQueueWorker     : 큐 요청 처리 실패 requestId=8
+
+org.springframework.dao.DataIntegrityViolationException: could not execute statement [ERROR: null value in column "course_term_id" of relation "enrollment" violates not-null constraint ...] ...
+```
+
+**3. 스택 트레이스 상단 프레임 (최소 1개)**
+
+```
+at org.springframework.orm.jpa.hibernate.HibernateExceptionTranslator.convertHibernateAccessException(HibernateExceptionTranslator.java:169)
+...
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentRequestProcessor.dispatchEnroll(EnrollmentRequestProcessor.java:154)
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentRequestProcessor.dispatch(EnrollmentRequestProcessor.java:127)
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentRequestProcessor.processOne(EnrollmentRequestProcessor.java:100)
+...
+at com.hongseob.openclass_ap.enrollment.worker.EnrollmentQueueWorker.drainQueue(EnrollmentQueueWorker.java:70)
+```
+
+주입 실패 배제 조건(D2) 대조: 상단 프레임 어디에도 `EnrollmentFailureInjector`/`ControllableFailureInjector` 클래스가 없다 — 실제 실행 경로의 프레임만 존재한다. 배제 조건에 해당하지 않는다.
+
+**4. (a)/(b) 판정: (b) — 이 코드베이스 밖의 외부·인프라 요인**
+
+**5. 판정 근거**
+
+plan.md §F M8 Step B의 규범적 정의(유래(origin) 기준, 소속 패키지는 보조 신호일 뿐)에 따라 판정한 근거는 다음과 같다.
+
+- **애플리케이션 코드 프레임만으로는 판정이 끝나지 않는다** — 위 스택의 애플리케이션 프레임(`EnrollmentRequestProcessor.dispatchEnroll`)은 이 코드베이스의 클래스이지만, 그 메서드가 `enrollmentRepository.save(...)`로 생성하는 INSERT 문(`insert into enrollment (cancelled_at,course_id,enrolled_at,member_id,status) values (...)`)은 `Enrollment` 엔티티(`src/main/java/.../enrollment/Enrollment.java`)의 필드 6개(`id, member_id, course_id, status, enrolled_at, cancelled_at`)를 정확히 반영한 것이며, 이 코드베이스의 설계(design.md §1, `schema.sql`)와 완전히 일치한다 — **이 메서드 자체에는 결함이 없다.**
+- **실패의 원인은 이 코드베이스가 생성하지도, 알지도 못하는 DB 오브젝트다.** `docker run --rm postgres:16-alpine psql "<local dev Supabase 접속 URL>" -c "\d enrollment"`로 로컬 개발용 원격 Supabase `postgres` 데이터베이스의 `enrollment` 테이블 실제 물리 스키마를 직접 조회한 결과, 이 코드베이스의 6개 컬럼 외에 **4개의 이질적 컬럼**이 이미 존재했다: `course_term_id bigint NOT NULL`(→ `course_term(id)` FK), `waiting_no`, `applied_at`, `canceled_at`(단일 L — 이 코드베이스의 `cancelled_at`은 별도로 존재). `status` 컬럼에는 `CHECK (status IN ('APPLIED','WAITING','CANCELED'))` 제약까지 걸려 있다 — 이 코드베이스의 `EnrollmentStatus` enum(`ENROLLED`/`CANCELLED`)과 값 자체가 다르다.
+- **이 물리 스키마는 이 코드베이스의 어떤 산출물과도 대응하지 않는다.** `grep -rn "course_term" --include=*.java --include=*.sql .` 전수 검색 결과, 프로덕션 소스·`schema.sql`·`Enrollment`/`Course` 엔티티 어디에도 `course_term`/`courseTermId` 참조가 **0건**이다. `git log --all --oneline | grep -i "course_term"` 결과도 **0건**이다 — 이 컬럼·FK·테이블은 이 코드베이스의 git 이력 어느 시점에도 존재한 적이 없다.
+- **`course_term`·`enrollment_history` 테이블 자체가 이 코드베이스 밖의 것이다.** `\dt public.*` 조회 결과 `course_term`, `enrollment_history` 두 테이블이 이 DB에 존재하지만, 두 테이블 모두 이 코드베이스의 어떤 엔티티·리포지토리·`schema.sql`에도 대응하지 않는다. `course` 테이블에도 이 코드베이스가 만들지 않은 `ck_course_status`/`course_status_check` 중복 CHECK 제약이 이미 있었다(우연히 허용값이 `OPEN`/`CLOSED`로 이 코드베이스와 같아 지금까지 충돌이 드러나지 않았을 뿐이다).
+- **`ddl-auto=update`의 가산(加算)적 동작이 충돌을 기동 시점에 숨긴다.** `spring.jpa.hibernate.ddl-auto=update`는 기존 테이블이 있으면 이 코드베이스 엔티티가 요구하는 컬럼(예: `cancelled_at`)만 **추가**할 뿐 기존의 이질적 컬럼·제약(`course_term_id NOT NULL` 등)을 검증·제거하지 않는다 — 그래서 애플리케이션은 정상적으로 기동되고, 실패는 오직 실제 INSERT 시점에만 나타난다.
+- **이 코드베이스 자체의 프로비저닝 경로로는 이 실패가 재현되지 않는다.** M1~M7 통합 테스트는 전부 Testcontainers(매 실행마다 새로 만든 PostgreSQL 컨테이너에 이 코드베이스의 `schema.sql` + 엔티티만으로 스키마를 생성)를 쓰며, `status=ENROLLED`로 `Enrollment`를 삽입하는 테스트가 M2·M6 등 다수 존재하고 전부 통과해왔다(§E.2 M2/M6 절 참고) — `course_term_id` 제약이 전혀 없기 때문이다. 즉 **이 코드베이스가 소유·관리하는 스키마 정의(엔티티 + `schema.sql`)만으로 DB를 구성하면 이 실패는 존재하지 않는다.** 실패는 오직 이 특정 로컬 개발용 Supabase 프로젝트의 **이미 채워져 있던 이질적 상태**에서만 나타난다 — 이는 정확히 plan.md §F M8이 예시한 "이 코드베이스의 로직에서 유래하지 않은" 조건이며, spec.md §A.7 개정 사유가 후보로 지목한 "(b) 원격 Supabase 세션 풀러를 쓰는 로컬 개발 환경 고유의 ... 요인"과 같은 범주(이 로컬 개발 환경에 특유한 외부 인프라 상태)에 해당한다.
+- 요약: 스택 최상단의 애플리케이션 프레임이 이 코드베이스 클래스라는 사실만으로 기계적으로 (a)를 단정하지 않았다 — 그 프레임이 호출한 로직 자체가 이 코드베이스의 완결된 설계와 정확히 일치함을 확인했고(코드에는 결함이 없음), 실패의 진짜 원인은 이 코드베이스가 생성·인지하지도 못하는 DB 오브젝트(다른 스키마 세대의 `course_term` 계열 테이블·제약)임을 직접 스키마 조회와 전수 grep + git 이력 조회로 실증했다. 이는 "패키지 소속만으로 (b)를 단정하지 않는다"는 D3 원칙의 대칭 적용이다 — 여기서는 반대로 "애플리케이션 프레임 소속만으로 (a)를 단정하지 않는다."
+
+**추가 코드 변경 없음 (plan.md §F M8 Step B "분기 (b)" 종결 조건)**
+
+이 판정에 따라 **코드 변경을 하지 않았다.** `git status --porcelain` 확인 결과 이 Step B 델타에서 프로덕션·테스트 소스 변경은 0건이다(아래 §E.3 이전 회귀·빌드 검증 참고). plan.md §D "실패 진단의 확장"이 금지하는 대로 외부 시스템(이 경우: 로컬 개발용 Supabase 프로젝트의 기존 이질적 스키마)을 "고치려" 재시도·백오프·풀 설정 변경·우회 로직을 도입하지 않았다. 이 발견에 따른 조치(예: 로컬 개발용 Supabase 프로젝트를 이 코드베이스 전용으로 새로 프로비저닝하거나, `course_term` 계열 테이블을 정리하는 것)가 필요하다고 판단되면 **별도 SPEC**의 대상이다 — 이는 애플리케이션 코드가 아니라 로컬 개발 인프라(DB 프로비저닝) 범위이기 때문이다.
+
+**빌드 검증 (Step B — 코드 변경 없음 확인)**
+
+```
+$ ./gradlew compileJava -x test   → BUILD SUCCESSFUL, exit 0 (UP-TO-DATE — Step A 이후 소스 변경 없음)
+$ ./gradlew compileTestJava       → BUILD SUCCESSFUL, exit 0 (UP-TO-DATE)
+```
+
+**정적 검증 (Step B)**
+
+```
+$ grep -rn 'AskUserQuestion\|mcp__askuser' src/main/java/com/hongseob/openclass_ap/enrollment/ src/main/java/com/hongseob/openclass_ap/waitlist/
+(출력 없음 — exit 1, 매치 0건)
+```
+
+**AC-ENR-061 PASS/FAIL**
+
+| AC | 상태 | 검증 방법 | 실제 근거 |
+|---|---|---|---|
+| AC-ENR-061 | PASS | 문서 검사(progress.md §E.2 M8 Step B, 위 5개 항목) | 실제 관측된 예외 타입 전체 이름·메시지 원문·상단 스택 프레임·(a)/(b) 판정(=b)·판정 근거가 전부 기록됨. 주입 실패 배제 조건(D2) 대조 결과 상단 프레임에 주입 훅 클래스 없음 — 실제 실행 경로 관측 충족. (b) 판정이므로 "추가 코드 변경 없음"이 요구되며, 위와 같이 실제로 코드 변경 0건임을 `git status --porcelain` + 빌드 UP-TO-DATE로 확인 |
+
+**Step B 완료 조건 재확인(plan.md §F M8)**: AC-ENR-061 PASS — 실제로 관측된 예외 상세(타입 전체 이름·메시지 원문·스택 트레이스 상단 프레임)가 위에 인용되어 있고, (b) 판정과 그 근거가 명시되어 있으며, "추가 코드 변경이 없음"이 기록되어 있다.
+
+**M8 전체 완료 판정 (plan.md §F M8)**: 필수 3건(AC-ENR-059·060·061) 전부 PASS. 분기 (b)이므로 추가 요구사항 없음 — "근본 원인이 수정되지 않았다"는 이유로 미완료 처리하지 않는다(plan.md §F M8 전체 완료 판정 규정). M8은 이것으로 완료된다.
+
+**회귀 검증 (plan.md §F M8 전체 완료 판정 "회귀 조건" — Step B는 코드 변경이 없으므로 Step A가 이미 §E.2 위 절에서 확인한 M2 실패 격리·원자성(`EnrollmentQueueResilienceIntegrationTest`) + M6 추적성(`EnrollmentQueueProcessingTraceabilityIntegrationTest`) 격리 실행 결과가 그대로 유효하다 — Step B에서 재실행할 대상 코드 변경이 없다)**
+
 ## §E.3 Run-phase Audit-Ready Signal
 
 ```yaml
@@ -1274,4 +1503,30 @@ m7_scope_closed: "AC-ENR-054..058 (5건) — DEP-2(SPEC-FRONTEND-001) 계약 폐
 known_residual_risks_carried_forward:
   - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4/M5/M6/M7) 미확보 — §E.2 M7 잔여 위험 1번, §E.3 known_residual_risks 참고. 코드 결함 아님(로컬 Docker 자원 고갈, M6에서 근본 원인 규명 완료)"
 sync_commit_sha: c80087e66ff940ca7a932f1780fc79a8a4586447  # backfilled per D3 예외
+```
+
+### §E.4 addendum — v0.3.1/v0.3.2 M8 제자리 개정 sync-phase 마무리 (2026-08-17)
+
+> 위 §E.4 본문 및 M7 addendum은 각각 M1~M6 / M7 sync 종결 당시의 기록으로 **정확하며 수정 대상이 아니다**. 이 addendum은 M8(v0.3.1/v0.3.2 제자리 개정 — 큐 처리 실패 진단 로깅 Step A + 근본 원인 조사·판정 Step B) sync-phase 종결만을 별도로 기록한다. sync-auditor 재실행 없음 — M8은 Step A(로깅 1건 추가)만 프로덕션 코드를 변경했고 Step B는 코드 변경이 없으므로(§E.2 M8 Step B 기록 참고) 경량 종결(manager-docs 단독)로 처리했다.
+
+```yaml
+sync_status: audit-ready
+sync_complete_at: 2026-08-17
+sync_files_touched:
+  - CHANGELOG.md     # SPEC-ENROLLMENT-001 절에 M8 Fixed(진단 로깅) + Verification(Step B 판정) 항목 추가, Known Limitations 1행 추가
+  - .moai/specs/SPEC-ENROLLMENT-001/spec.md       # frontmatter status 전이만 (body 무변경)
+  - .moai/specs/SPEC-ENROLLMENT-001/progress.md   # 이 addendum
+frontmatter_transitions:
+  - file: .moai/specs/SPEC-ENROLLMENT-001/spec.md
+    status: "in-progress -> completed"
+    updated: "2026-08-17 (unchanged date, same-day amendment close)"
+readme_change: none  # README.md에 워커 실패 처리 관련 고증이 필요한 기존 서술이 없어 변경 생략
+ac_scope: AC-ENR-059..AC-ENR-061  # M8 신설 3건
+ac_pass_count: 3
+ac_fail_count: 0
+m8_scope_closed: "AC-ENR-059~061 (3건) — Step A 진단 로깅 + Step B 근본 원인 (b)외부/인프라 요인 판정, 코드 변경 0건(Step B)"
+known_residual_risks_carried_forward:
+  - "M8 진단 로깅이 실제로 잡아낸 프로덕션 실패의 근본 원인은 이 로컬 개발 DB에 국한된 인프라 상태(이질적 course_term 스키마 객체) — 다른 환경에서 재현되지 않을 수 있음"
+  - "jacoco 패키지 단위 커버리지 집계 4회 연속(M4~M7) 미확보 — §E.3 known_residual_risks 참고, M8은 커버리지 영향 없음(Step A 1개 catch 블록 로깅 추가만)"
+sync_commit_sha: ebe321840434a6e5163e2180ca4f5caf1e846817  # M8 sync 커밋(백필 완료)
 ```

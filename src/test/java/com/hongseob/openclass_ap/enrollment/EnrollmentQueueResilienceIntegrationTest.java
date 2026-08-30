@@ -1,5 +1,9 @@
 package com.hongseob.openclass_ap.enrollment;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.hongseob.openclass_ap.course.Course;
 import com.hongseob.openclass_ap.course.CourseRepository;
 import com.hongseob.openclass_ap.enrollment.receipt.EnrollmentReceiptService;
@@ -16,8 +20,10 @@ import com.hongseob.openclass_ap.member.Member;
 import com.hongseob.openclass_ap.member.MemberRepository;
 import com.hongseob.openclass_ap.support.AbstractIntegrationTest;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -150,5 +156,70 @@ class EnrollmentQueueResilienceIntegrationTest extends AbstractIntegrationTest {
         // 어떤 이름으로도 정의하지 않는다(markDone()만이 state를 변경하며 항상
         // DONE으로 설정한다). 이 사실은 소스 검색으로 별도 확인한다(검증 방법:
         // acceptance.md AC-ENR-018 "통합 테스트 + 소스 검색").
+    }
+
+    // AC-ENR-059 — M8 Step A: 실패 예외의 상세 기록 (레벨 + requestId + 예외
+    // 타입 + 예외 메시지 + 스택 트레이스가 모두 확인되고, 동시에 AC-ENR-016/017의
+    // 기존 동작(다른 요청 정상 종단 + result='FAILED' 보존)이 유지된다).
+    @Test
+    void 두번째_요청_실패시_WARN_이상_수준으로_requestId_예외타입_예외메시지_스택트레이스가_모두_기록되고_AC_ENR_016_017_동작은_유지된다() {
+        Logger workerLogger = (Logger) LoggerFactory.getLogger(EnrollmentQueueWorker.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        workerLogger.addAppender(appender);
+
+        try {
+            Long courseId = createCourse(5);
+            Long m1 = createMember("diag1@example.com");
+            Long m2 = createMember("diag2@example.com");
+            Long m3 = createMember("diag3@example.com");
+
+            Long r1 = receiptService.receiveEnrollment(m1, courseId);
+            Long r2 = receiptService.receiveEnrollment(m2, courseId);
+            Long r3 = receiptService.receiveEnrollment(m3, courseId);
+
+            controllableInjector.failNextFor(r2);
+
+            worker.drainQueue();
+
+            // AC-ENR-059 — 로그 이벤트 중 최소 1건이 5개 요소를 모두 만족한다.
+            List<ILoggingEvent> matching = appender.list.stream()
+                    .filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN))
+                    .filter(event -> event.getFormattedMessage().contains("requestId=" + r2))
+                    .toList();
+
+            assertThat(matching)
+                    .as("requestId=%s 를 포함하는 WARN 이상 로그 이벤트가 최소 1건 있어야 한다", r2)
+                    .isNotEmpty();
+
+            ILoggingEvent event = matching.get(0);
+            assertThat(event.getLevel().isGreaterOrEqual(Level.WARN))
+                    .as("로그 수준이 WARN 이상이어야 한다").isTrue();
+            assertThat(event.getThrowableProxy())
+                    .as("스택 트레이스(ThrowableProxy)가 첨부되어 있어야 한다").isNotNull();
+            assertThat(event.getThrowableProxy().getClassName())
+                    .as("예외 타입이 주입된 예외(IllegalStateException)와 일치해야 한다")
+                    .isEqualTo(IllegalStateException.class.getName());
+            assertThat(event.getThrowableProxy().getMessage())
+                    .as("예외 메시지가 주입 시 사용한 메시지를 포함해야 한다")
+                    .contains("AC-ENR-016/017 테스트 전용 강제 실패 주입: requestId=" + r2);
+            assertThat(event.getThrowableProxy().getStackTraceElementProxyArray().length)
+                    .as("스택 트레이스 프레임이 1개 이상이어야 한다")
+                    .isGreaterThan(0);
+
+            // AC-ENR-059 "또한" 절 — AC-ENR-016/017의 기존 동작이 그대로 유지된다.
+            assertThat(requestRepository.findById(r1).orElseThrow().getResult())
+                    .isEqualTo(RequestResult.SUCCESS);
+            assertThat(requestRepository.findById(r3).orElseThrow().getResult())
+                    .isEqualTo(RequestResult.SUCCESS);
+            EnrollmentRequest r2Row = requestRepository.findById(r2).orElseThrow();
+            assertThat(r2Row.getState()).isEqualTo(RequestState.DONE);
+            assertThat(r2Row.getResult()).isEqualTo(RequestResult.FAILED);
+            assertThat(enrollmentRepository.count()).isEqualTo(2);
+            assertThat(courseRepository.findById(courseId).orElseThrow().getEnrolledCount())
+                    .isEqualTo(2);
+        } finally {
+            workerLogger.detachAppender(appender);
+        }
     }
 }

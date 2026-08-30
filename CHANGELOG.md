@@ -56,10 +56,20 @@
 - 인수 기준 AC-ENR-001~053 (53건) 중 52건 PASS + 1건 PASS-WITH-DEBT(AC-ENR-049, 커버리지 집계 환경 제약 — progress.md §E.2 M6 참고), 0건 FAIL — `.moai/specs/SPEC-ENROLLMENT-001/acceptance.md` §D.2 추적성 매트릭스 기준.
 - (v0.3.0 M7 추가) 인수 기준 AC-ENR-054~058 (5건) 전부 PASS(격리 실행) — 누적 AC-ENR-001~058 총 58건 중 57건 PASS + 1건 PASS-WITH-DEBT, 0건 FAIL. `.moai/specs/SPEC-ENROLLMENT-001/acceptance.md` §D.2 추적성 매트릭스 기준.
 
+### Fixed — SPEC-ENROLLMENT-001 M8 (v0.3.1/v0.3.2 제자리 개정): 큐 처리 실패의 진단 불가능성 해소
+
+- **진단 로깅 (M8 Step A)**: `EnrollmentQueueWorker.drainQueue()`의 `catch (RuntimeException ex)` 블록이 포착한 예외를 **어떤 형태로도 기록하지 않고 폐기**하던 결함을 고침 — 이제 SLF4J로 WARN 이상 레벨에 예외 타입 전체 이름·메시지 원문·스택 트레이스를 기록한다. `enrollment`/`waitlist` 패키지 프로덕션 소스 전수 검사로 이런 무기록 폐기 catch 블록이 이 1건뿐임을 확인했다.
+
+### Verification — M8 Step B: 실제 실패 재현 및 근본 원인 판정 (코드 수정 없음)
+
+- M8 Step B는 `POST /api/courses/{courseId}/enrollments` 실제 HTTP 요청 흐름으로 프로덕션 실패(`DataIntegrityViolationException` — `course_term_id` NOT NULL 제약 위반)를 재현하고, DB 스키마 직접 조사 + 소스/git 이력 전수 grep(둘 다 `course_term` 0건 매치)으로 **(b) 외부/인프라 요인**으로 판정했다 — 이 로컬 개발용 Supabase 프로젝트에 이 코드베이스가 만들거나 참조한 적 없는 이질적 스키마 객체(`course_term` 테이블·FK·추가 컬럼·불일치 CHECK 제약)가 이미 존재하던 것이 원인이며, 이 코드베이스 자체의 결함이 아니다. SPEC 설계상 (b) 판정은 코드 수정을 요구하지 않으며 — 실제로 Step B에서 소스 코드는 **한 줄도 변경하지 않았다**(`progress.md`만 갱신). SPEC-FRONTEND-001 프론트엔드 개발 전 과정에서 관찰되던 지속적인 수강신청 처리 실패의 원인이, 이 코드베이스의 버그가 아니라 로컬 개발 환경 DB 상태였음이 이로써 규명되었다.
+- 인수 기준 AC-ENR-059~061 (3건) 전부 PASS — `.moai/specs/SPEC-ENROLLMENT-001/acceptance.md` §D.2 추적성 매트릭스 기준. 누적 AC-ENR-001~061 총 61건 중 60건 PASS + 1건 PASS-WITH-DEBT(AC-ENR-049), 0건 FAIL.
+
 ### Known Limitations
 
 - 다중 워커 인스턴스 배포 시 접수 순서 보장이 성립하지 않음(워커 1개 전제) — README.md 배포 전제 절 참고.
 - jacoco 패키지 단위 커버리지 집계가 4회 연속(M4/M5/M6/M7) 미확보되어 클래스 단위 개별 실행 수치로 대체됨 — CI 환경에서 재시도 권장(progress.md §E.2 M7 잔여 위험 1번 — M6에서 근본 원인을 "연속 격리 재실행의 누적 Docker 자원 고갈"로 규명).
+- 이 개정(M8)에서 진단 로깅을 도입했으나, 그 로그가 실제로 잡아낸 프로덕션 실패의 근본 원인은 이 로컬 개발 DB에 국한된 인프라 상태였다 — 다른 Supabase 프로젝트나 CI 환경에서는 재현되지 않을 수 있다.
 
 ### Added — SPEC-FRONTEND-001: React 클라이언트 — 회원·강좌·수강신청 전 화면 및 관리자 콘솔
 
