@@ -2,9 +2,9 @@
 id: SPEC-FRONTEND-001
 title: "React 클라이언트 — 회원·강좌·수강신청 전 화면 및 관리자 콘솔"
 version: "0.2.2"
-status: draft
+status: completed
 created: 2026-08-17
-updated: 2026-08-17
+updated: 2026-08-18
 author: manager-spec
 priority: P1
 phase: "v1.0.0"
