@@ -1,10 +1,10 @@
 ---
 id: SPEC-COURSE-001
 title: "강좌 엔티티·카탈로그 조회 및 관리자 강좌 관리 — 진행 기록"
-version: "0.1.2"
+version: "0.1.3"
 status: completed
 created: 2026-08-15
-updated: 2026-08-16
+updated: 2026-08-30
 author: manager-spec
 priority: P0
 phase: "v1.0.0"
@@ -12,6 +12,7 @@ module: "src/main/java/com/hongseob/openclass_ap/course"
 lifecycle: spec-anchored
 tags: "course, progress"
 tier: M
+amendment_of: SPEC-COURSE-001
 ---
 
 # SPEC-COURSE-001 — 진행 기록
@@ -299,10 +300,47 @@ $ grep -rn "enrolledCount|enrolled_count" src/main --include="*.java" | grep -v 
 - [x] 미해소 클래리피케이션 마커 없음
 - [x] 선행 SPEC `SPEC-AUTH-001`이 `completed` 상태
 
+### Amendment 1 — 강좌명 검색 추가 (2026-08-30, completed → in-progress → completed)
+
+**배경**: 사용자가 직접 요청한 강좌명 검색 기능(REQ-CAT-007). 자세한 배경·범위는 spec.md `## Amendments` Amendment 1 참고.
+
+**구현**:
+- `CourseRepository` — `findByTitleContainingIgnoreCase(String keyword, Pageable pageable)` 파생 쿼리 메서드 1건 추가
+- `CourseService` — `list(int, int, String)` 오버로드 추가. `keyword`가 `null`이거나 공백뿐이면 기존 `list(int, int)`로 위임(회귀 없음)
+- `CourseController` — `GET /api/courses`에 선택적 `keyword` 쿼리 파라미터 추가
+
+**신규 테스트 (`CourseCatalogApiIntegrationTest`, 5건 추가)**:
+- `keyword로_검색하면_강좌명에_부분_일치하는_강좌만_반환된다`
+- `keyword에_일치하는_강좌가_없으면_빈_페이지가_반환된다`
+- `keyword를_생략하면_기존과_동일하게_전체_목록이_반환된다`
+- `keyword_검색은_대소문자를_무시한다`
+- `keyword가_공백뿐이면_기존과_동일하게_전체_목록이_반환된다`
+
+**격리 실행 결과** (`./gradlew test --tests "com.hongseob.openclass_ap.course.CourseCatalogApiIntegrationTest" --rerun`):
+```
+BUILD SUCCESSFUL
+testsuite tests="10" failures="0" errors="0"
+```
+
+**인접 회귀 스윕 — 격리 실행** (이 환경의 확립된 검증 방법, §E.2 M1~M4 절 참조):
+- `CourseSchemaIntegrationTest`, `CourseEnrolledCountMutationAbsenceTest`, `CourseAdminApiIntegrationTest`, `CourseAdminStaticAbsenceTest`, `CourseInputValidationIntegrationTest`, `com.hongseob.openclass_ap.member.AuthorizationIntegrationTest`, `SecurityErrorForwardIntegrationTest` — 전부 격리 실행 `BUILD SUCCESSFUL`, 신규 실패 0건
+
+**라이브 서버 재검증 (curl, 별도 포트 8090으로 기동 — 세션 무관 잔존 프로세스가 8080을 점유하고 있어 신 코드 반영분과 혼동 방지 목적)**:
+```
+$ curl -s "http://localhost:8090/api/courses?keyword=M3" | ...
+totalElements=2, ["M3 확인용 강좌 - 모집중", "M3 확인용 강좌 - 마감됨"]
+$ curl -s "http://localhost:8090/api/courses?keyword=m3"   → 동일 2건 (대소문자 무시 확인)
+$ curl -s -G "http://localhost:8090/api/courses" --data-urlencode "keyword=존재하지않음222" → 200, items=[], totalElements=0
+$ curl -s "http://localhost:8090/api/courses"               → keyword 생략, totalElements=12 (기존과 동일)
+```
+검증 후 `./gradlew --stop`으로 임시 데몬 종료, 8080/8090 포트 모두 반환 확인.
+
+**MX Tag**: 신규 위험 지점(고 fan_in, 고 complexity) 없음 — 파생 쿼리 메서드 1건 추가는 기존 @MX 태그 상태에 영향 없음.
+
 ## §E.3 Run-phase Audit-Ready Signal
 
-- `run_status`: **audit-ready** — M1~M4 전체 마일스톤 완료
-- `ac_pass_count`: 19 (AC-CRS-001~005, AC-CAT-001~005, AC-ADM-001~008, AC-NFR-001~003)
+- `run_status`: **audit-ready** — M1~M4 + Amendment 1 전체 완료
+- `ac_pass_count`: 20 (AC-CRS-001~005, AC-CAT-001~005, AC-CAT-007[Amendment 1, REQ-CAT-007], AC-ADM-001~008, AC-NFR-001~003)
 - `ac_pass_with_debt_count`: 0
 - `ac_fail_count`: 0
 - `new_warnings_or_lints_introduced`: 0 (Hibernate `@Check`/`@Checks` deprecation Note 1건, M1부터 기록, 컴파일 에러 아님)

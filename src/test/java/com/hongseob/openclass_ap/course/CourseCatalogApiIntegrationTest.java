@@ -163,4 +163,71 @@ class CourseCatalogApiIntegrationTest extends AbstractIntegrationTest {
         List<String> closedStatuses = JsonPath.read(body, "$.items[?(@.title == '마감강좌')].status");
         assertThat(closedStatuses).containsExactly("CLOSED");
     }
+
+    // AC-CAT-007(a) — 일치하는 keyword로 검색하면 일치하는 강좌만 반환된다 (REQ-CAT-007, Amendment 1)
+    @Test
+    void keyword로_검색하면_강좌명에_부분_일치하는_강좌만_반환된다() throws Exception {
+        courseRepository.save(newCourse("스프링 부트 입문", 10));
+        courseRepository.save(newCourse("자바 기초", 10));
+        courseRepository.save(newCourse("스프링 시큐리티 심화", 10));
+
+        String body = mockMvc.perform(get("/api/courses").param("keyword", "스프링"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> titles = JsonPath.read(body, "$.items[*].title");
+        assertThat(titles).containsExactlyInAnyOrder("스프링 부트 입문", "스프링 시큐리티 심화");
+    }
+
+    // AC-CAT-007(b) — 일치하는 강좌가 없으면 오류가 아닌 빈 페이지가 반환된다
+    @Test
+    void keyword에_일치하는_강좌가_없으면_빈_페이지가_반환된다() throws Exception {
+        courseRepository.save(newCourse("스프링 부트 입문", 10));
+
+        mockMvc.perform(get("/api/courses").param("keyword", "존재하지않는강좌명"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    // AC-CAT-007(c) — keyword 파라미터를 생략하면 기존 동작(전체 목록)과 동일하다 (회귀)
+    @Test
+    void keyword를_생략하면_기존과_동일하게_전체_목록이_반환된다() throws Exception {
+        courseRepository.save(newCourse("스프링 부트 입문", 10));
+        courseRepository.save(newCourse("자바 기초", 10));
+
+        mockMvc.perform(get("/api/courses"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2));
+    }
+
+    // AC-CAT-007(d) — 대소문자를 무시하고 일치한다
+    @Test
+    void keyword_검색은_대소문자를_무시한다() throws Exception {
+        courseRepository.save(newCourse("Spring Boot Basics", 10));
+        courseRepository.save(newCourse("자바 기초", 10));
+
+        String body = mockMvc.perform(get("/api/courses").param("keyword", "spring"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> titles = JsonPath.read(body, "$.items[*].title");
+        assertThat(titles).containsExactly("Spring Boot Basics");
+    }
+
+    // AC-CAT-007(e) — 공백뿐인 keyword는 부재와 동일하게 전체 목록을 반환한다
+    @Test
+    void keyword가_공백뿐이면_기존과_동일하게_전체_목록이_반환된다() throws Exception {
+        courseRepository.save(newCourse("스프링 부트 입문", 10));
+        courseRepository.save(newCourse("자바 기초", 10));
+
+        mockMvc.perform(get("/api/courses").param("keyword", "   "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.totalElements").value(2));
+    }
 }
