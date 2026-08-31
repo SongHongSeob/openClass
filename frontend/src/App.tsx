@@ -14,7 +14,7 @@ import { AdminCoursesPage } from './admin/AdminCoursesPage'
 import { AdminCourseFormPage } from './admin/AdminCourseFormPage'
 import { AdminMembersPage } from './admin/AdminMembersPage'
 import { resolveAdminGuardFallback, shouldShowAdminMenu } from './admin/adminModel'
-import { MyEnrollmentsPage } from './cancellation/MyEnrollmentsPage'
+import { MyEnrollmentsSection } from './cancellation/MyEnrollmentsSection'
 import { MyWaitlistPage } from './cancellation/MyWaitlistPage'
 import { Button } from '@/components/ui/button'
 import { Alert } from '@/components/ui/alert'
@@ -320,7 +320,7 @@ function MyEnrollmentsRoute() {
   const { session } = useSession()
   return (
     <RequireAuth fallback={<Navigate to="/" replace />}>
-      {session.status === 'authenticated' ? <MyEnrollmentsPage token={session.token} /> : null}
+      {session.status === 'authenticated' ? <MyEnrollmentsSection token={session.token} /> : null}
     </RequireAuth>
   )
 }

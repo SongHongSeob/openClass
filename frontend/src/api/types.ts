@@ -104,6 +104,11 @@ export interface RequestStatus {
  * `GET /api/enrollments/mine`). `status`는 실제로는 `'ENROLLED'` 고정(백엔드가
  * 활성 행만 반환)이지만 다른 상태 필드와 동일하게 관대한 타입을 유지한다.
  * `enrolledAt`도 위 `Course`의 날짜 처리 규칙과 동일하게 문자열로 둔다.
+ *
+ * `capacity`/`enrolledCount`/`remainingCapacity`/`courseStatus`는 이 수강신청이
+ * 속한 강좌의 정원 현황이다 — 위 `Course`의 동명 필드와 동일한 의미다.
+ * `courseStatus`는 강좌의 OPEN/CLOSED 상태이며, 이 항목의 `status`(수강신청
+ * 자체의 상태)와는 별개다.
  */
 export interface EnrollmentListItem {
   enrollmentId: number
@@ -111,6 +116,10 @@ export interface EnrollmentListItem {
   courseTitle: string
   status: EnrollmentStatus
   enrolledAt: string
+  capacity: number
+  enrolledCount: number
+  remainingCapacity: number
+  courseStatus: CourseStatus
 }
 
 /**
