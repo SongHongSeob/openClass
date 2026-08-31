@@ -10,6 +10,8 @@ import type {
   CoursePage,
   EnrollmentListItem,
   LoginResult,
+  Member,
+  MemberRole,
   Receipt,
   RequestStatus,
   SignupResult,
@@ -148,4 +150,14 @@ export function cancelEnrollment(enrollmentId: number, token: string): Promise<R
  */
 export function cancelWaitlistEntry(waitlistEntryId: WaitlistEntryId, token: string): Promise<void> {
   return apiFetch<void>(`/api/waitlist-entries/${waitlistEntryId}`, { method: 'DELETE', token })
+}
+
+/** `GET /api/admin/members` — 관리자 회원 관리 화면의 전체 회원 목록 조회. */
+export function listMembers(token: string): Promise<Member[]> {
+  return apiFetch<Member[]>('/api/admin/members', { token })
+}
+
+/** `PATCH /api/admin/members/{memberId}/role` — 회원 역할 승격/강등. */
+export function updateMemberRole(memberId: number, role: MemberRole, token: string): Promise<Member> {
+  return apiFetch<Member>(`/api/admin/members/${memberId}/role`, { method: 'PATCH', body: { role }, token })
 }

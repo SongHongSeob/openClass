@@ -12,6 +12,7 @@ import { evaluateRoleGuard } from './routing/guardLogic'
 import { RequestStatusPage } from './enrollment/RequestStatusPage'
 import { AdminCoursesPage } from './admin/AdminCoursesPage'
 import { AdminCourseFormPage } from './admin/AdminCourseFormPage'
+import { AdminMembersPage } from './admin/AdminMembersPage'
 import { resolveAdminGuardFallback, shouldShowAdminMenu } from './admin/adminModel'
 import { MyEnrollmentsPage } from './cancellation/MyEnrollmentsPage'
 import { MyWaitlistPage } from './cancellation/MyWaitlistPage'
@@ -124,6 +125,17 @@ function AdminCourseEditRoute() {
   )
 }
 
+function AdminMembersRoute() {
+  const { session } = useSession()
+  const token = session.status === 'authenticated' ? session.token : ''
+  const currentUserEmail = session.status === 'authenticated' ? session.email : ''
+  return (
+    <AdminRoute>
+      <AdminMembersPage token={token} currentUserEmail={currentUserEmail} />
+    </AdminRoute>
+  )
+}
+
 function AnonymousView() {
   return (
     <main className="flex flex-col gap-6">
@@ -208,9 +220,14 @@ function Sidebar() {
             </Button>
             {/* REQ-ADM-001 — 관리자 화면 진입 수단은 role === 'ADMIN'일 때만 노출한다. */}
             {shouldShowAdminMenu(session.role) && (
-              <Button type="button" variant="ghost" className="justify-start" onClick={() => navigate('/admin/courses')}>
-                관리자
-              </Button>
+              <>
+                <Button type="button" variant="ghost" className="justify-start" onClick={() => navigate('/admin/courses')}>
+                  강좌 관리
+                </Button>
+                <Button type="button" variant="ghost" className="justify-start" onClick={() => navigate('/admin/members')}>
+                  회원 관리
+                </Button>
+              </>
             )}
           </>
         )}
@@ -331,6 +348,7 @@ function AppRoutes() {
         <Route path="/admin/courses" element={<AdminCoursesRoute />} />
         <Route path="/admin/courses/new" element={<AdminCourseCreateRoute />} />
         <Route path="/admin/courses/:id/edit" element={<AdminCourseEditRoute />} />
+        <Route path="/admin/members" element={<AdminMembersRoute />} />
         <Route path="*" element={<Shell />} />
       </Route>
     </Routes>

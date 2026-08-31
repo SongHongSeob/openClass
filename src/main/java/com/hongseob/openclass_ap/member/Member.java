@@ -83,4 +83,13 @@ public class Member {
     public static String normalizeEmail(String rawEmail) {
         return rawEmail == null ? null : rawEmail.trim().toLowerCase(Locale.ROOT);
     }
+
+    /**
+     * 관리자 회원 관리 화면의 역할 승격/강등 전용 진입점. 동일 값으로의 변경은
+     * 무해한 no-op이다 — 자기 자신의 역할 변경 차단(SelfRoleChangeNotAllowedException)은
+     * 서비스 계층의 책임이며 이 메서드는 그 판단을 하지 않는다.
+     */
+    public void changeRole(MemberRole newRole) {
+        this.role = newRole;
+    }
 }
