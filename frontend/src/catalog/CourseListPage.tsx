@@ -111,22 +111,22 @@ export function CourseListPage({ onSelectCourse }: CourseListPageProps) {
               {state.items.map((course, index) => (
                 <tr
                   key={course.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onSelectCourse(course.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onSelectCourse(course.id)
+                    }
+                  }}
                   className={
                     index % 2 === 0
-                      ? 'border-b border-neutral-200 last:border-b-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900'
-                      : 'border-b border-neutral-200 bg-neutral-50/50 last:border-b-0 hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/40 dark:hover:bg-neutral-800'
+                      ? 'cursor-pointer border-b border-neutral-200 last:border-b-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900'
+                      : 'cursor-pointer border-b border-neutral-200 bg-neutral-50/50 last:border-b-0 hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900/40 dark:hover:bg-neutral-800'
                   }
                 >
-                  <td className="px-4 py-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-auto justify-start px-0 text-left font-semibold"
-                      onClick={() => onSelectCourse(course.id)}
-                    >
-                      {course.title}
-                    </Button>
-                  </td>
+                  <td className="px-4 py-2 font-semibold text-neutral-900 dark:text-neutral-100">{course.title}</td>
                   <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">{course.capacity}</td>
                   <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">{course.enrolledCount}</td>
                   <td className="px-4 py-2 text-neutral-600 dark:text-neutral-400">{course.remainingCapacity}</td>
