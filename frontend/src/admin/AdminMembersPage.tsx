@@ -105,6 +105,7 @@ export function AdminMembersPage({ token, currentUserEmail }: AdminMembersPagePr
                         type="button"
                         variant="outline"
                         size="sm"
+                        className="whitespace-nowrap"
                         disabled={isSelf || updatingId === member.id}
                         onClick={() => handleRoleChange(member.id, nextRole)}
                       >
