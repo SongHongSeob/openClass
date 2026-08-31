@@ -2,6 +2,7 @@ package com.hongseob.openclass_ap.member;
 
 import com.hongseob.openclass_ap.common.exception.DuplicateEmailException;
 import com.hongseob.openclass_ap.common.exception.InvalidCredentialsException;
+import java.util.List;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,5 +60,28 @@ public class MemberService {
             throw new InvalidCredentialsException();
         }
         return member;
+    }
+
+    /**
+     * 관리자 회원 관리 화면의 전체 회원 목록 조회. 회원 수가 적은 규모라
+     * 페이지네이션을 도입하지 않는다.
+     */
+    public List<Member> listAll() {
+        return memberRepository.findAll();
+    }
+
+    /**
+     * 대상 회원의 역할을 변경한다. 호출자(ADMIN)가 자기 자신을 대상으로 지정하면
+     * {@link SelfRoleChangeNotAllowedException}을 던져 거부한다.
+     */
+    @Transactional
+    public Member changeRole(Long targetId, MemberRole newRole, String callerEmail) {
+        Member target = memberRepository.findById(targetId)
+                .orElseThrow(() -> new MemberNotFoundException(targetId));
+        if (target.getEmail().equals(Member.normalizeEmail(callerEmail))) {
+            throw new SelfRoleChangeNotAllowedException();
+        }
+        target.changeRole(newRole);
+        return target;
     }
 }

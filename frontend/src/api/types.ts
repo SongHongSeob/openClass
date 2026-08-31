@@ -27,6 +27,15 @@ export interface LoginResult {
   accessToken: string
 }
 
+/** MemberResponse → Member (관리자 회원 관리 화면, `GET /api/admin/members`). */
+export interface Member {
+  id: number
+  email: string
+  name: string | null
+  role: MemberRole
+  createdAt: string
+}
+
 /**
  * 강좌 모집 상태. 백엔드 enum(`CourseStatus.java`)은 DB CHECK 제약으로
  * `OPEN`/`CLOSED` 2종만 가능하지만, 이 모듈의 다른 상태 유니온들과 일관되게

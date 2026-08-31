@@ -1,6 +1,8 @@
 package com.hongseob.openclass_ap.common.exception;
 
 import com.hongseob.openclass_ap.common.response.ErrorResponse;
+import com.hongseob.openclass_ap.member.MemberNotFoundException;
+import com.hongseob.openclass_ap.member.SelfRoleChangeNotAllowedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -93,5 +95,23 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleInvalidCourseId(InvalidCourseIdException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ErrorResponse.of("INVALID_COURSE_ID", ex.getMessage()));
+    }
+
+    /**
+     * 존재하지 않는 회원 식별자로 관리자 회원 관리 API를 호출했을 때 404를 반환한다.
+     */
+    @ExceptionHandler(MemberNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleMemberNotFound(MemberNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.of("MEMBER_NOT_FOUND", ex.getMessage()));
+    }
+
+    /**
+     * ADMIN이 자기 자신의 역할을 변경하려는 요청을 409로 거부한다.
+     */
+    @ExceptionHandler(SelfRoleChangeNotAllowedException.class)
+    public ResponseEntity<ErrorResponse> handleSelfRoleChangeNotAllowed(SelfRoleChangeNotAllowedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of("SELF_ROLE_CHANGE_NOT_ALLOWED", ex.getMessage()));
     }
 }
