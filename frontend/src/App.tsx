@@ -274,8 +274,9 @@ function Layout() {
 
 /**
  * `/login`·`/signup` 전용 사이드바 없는 풀스크린 레이아웃. `fixed inset-0`으로
- * `index.css`의 전역 `#root { max-width: 720px; margin: 0 auto }` 제약을
- * 벗어나 뷰포트 전체를 채운다 — 다른 라우트는 여전히 그 제약을 받는다.
+ * 뷰포트 전체를 채운다. `index.css`의 `#root`는 폭 제약이 없으므로 이 레이아웃이
+ * 아니어도 목록·표 화면들은 이미 뷰포트 전체 폭을 쓴다 — 여기서는 사이드바를
+ * 아예 렌더링하지 않고 중앙 정렬 카드로 보여주기 위해 fixed를 쓴다.
  */
 function AuthLayout() {
   return (
