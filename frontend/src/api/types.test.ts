@@ -56,6 +56,10 @@ describe('EnrollmentListItem — dates stay strings (design.md §A.1 date rule)'
       courseTitle: '테스트 강좌',
       status: 'ENROLLED',
       enrolledAt: '2026-08-17T09:00:00',
+      capacity: 5,
+      enrolledCount: 2,
+      remainingCapacity: 3,
+      courseStatus: 'OPEN',
     }
     expect(typeof item.enrolledAt).toBe('string')
   })

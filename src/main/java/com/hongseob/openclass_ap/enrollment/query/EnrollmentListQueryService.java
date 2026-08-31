@@ -52,21 +52,28 @@ public class EnrollmentListQueryService {
         List<Enrollment> enrollments =
                 enrollmentRepository.findByMemberIdAndStatusOrderByIdAsc(memberId, EnrollmentStatus.ENROLLED);
 
-        Map<Long, String> courseTitleById = courseTitleById(enrollments);
+        Map<Long, Course> courseById = courseById(enrollments);
 
         return enrollments.stream()
-                .map(enrollment -> new EnrollmentListItemResponse(
-                        enrollment.getId(),
-                        enrollment.getCourseId(),
-                        courseTitleById.get(enrollment.getCourseId()),
-                        enrollment.getStatus().name(),
-                        enrollment.getEnrolledAt()))
+                .map(enrollment -> {
+                    Course course = courseById.get(enrollment.getCourseId());
+                    return new EnrollmentListItemResponse(
+                            enrollment.getId(),
+                            enrollment.getCourseId(),
+                            course.getTitle(),
+                            enrollment.getStatus().name(),
+                            enrollment.getEnrolledAt(),
+                            course.getCapacity(),
+                            course.getEnrolledCount(),
+                            course.getCapacity() - course.getEnrolledCount(),
+                            course.getStatus().name());
+                })
                 .toList();
     }
 
-    private Map<Long, String> courseTitleById(List<Enrollment> enrollments) {
+    private Map<Long, Course> courseById(List<Enrollment> enrollments) {
         List<Long> courseIds = enrollments.stream().map(Enrollment::getCourseId).distinct().toList();
         return courseRepository.findAllById(courseIds).stream()
-                .collect(Collectors.toMap(Course::getId, Course::getTitle, (left, right) -> left));
+                .collect(Collectors.toMap(Course::getId, course -> course, (left, right) -> left));
     }
 }

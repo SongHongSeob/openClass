@@ -20,6 +20,10 @@ function enrollmentItem(overrides: Partial<EnrollmentListItem> = {}): Enrollment
     courseTitle: '알고리즘 입문',
     status: 'SUCCESS',
     enrolledAt: '2026-08-01T00:00:00',
+    capacity: 5,
+    enrolledCount: 2,
+    remainingCapacity: 3,
+    courseStatus: 'OPEN',
     ...overrides,
   }
 }

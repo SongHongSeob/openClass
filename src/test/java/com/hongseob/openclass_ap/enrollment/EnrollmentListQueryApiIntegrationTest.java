@@ -10,7 +10,10 @@ import com.hongseob.openclass_ap.member.MemberRepository;
 import com.hongseob.openclass_ap.member.jwt.JwtTokenProvider;
 import com.hongseob.openclass_ap.support.AbstractIntegrationTest;
 import com.hongseob.openclass_ap.waitlist.WaitlistEntryRepository;
+import com.jayway.jsonpath.JsonPath;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -124,6 +127,16 @@ class EnrollmentListQueryApiIntegrationTest extends AbstractIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(body)
                 .as("취소된 R과 B의 확정 행이 응답에 나타나지 않아야 한다")
                 .doesNotContain("\"enrollmentId\":" + enrollmentR);
+
+        // 강좌P는 정원 5에 A·B 둘 다 확정하여 enrolledCount=2, remainingCapacity=3이어야 한다.
+        List<Map<String, Object>> entries = JsonPath.read(body, "$");
+        Map<String, Object> entryForCourseP = entries.stream()
+                .filter(entry -> ((Number) entry.get("courseId")).longValue() == courseP)
+                .findFirst().orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(entryForCourseP.get("capacity")).isEqualTo(5);
+        org.assertj.core.api.Assertions.assertThat(entryForCourseP.get("enrolledCount")).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThat(entryForCourseP.get("remainingCapacity")).isEqualTo(3);
+        org.assertj.core.api.Assertions.assertThat(entryForCourseP.get("courseStatus")).isEqualTo("OPEN");
     }
 
     // AC-ENR-054 (빈 목록)

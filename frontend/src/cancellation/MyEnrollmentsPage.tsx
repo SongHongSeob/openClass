@@ -15,9 +15,12 @@ import { describeCancelError, resolveEnrollmentCancelTarget, toListView } from '
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 
 export interface MyEnrollmentsPageProps {
   token: string
+  /** 카드 선택 시 상세 화면으로 전환한다. `catalog/CourseListPage.tsx`의 `onSelectCourse`와 동일한 시그니처. */
+  onSelectCourse: (courseId: number) => void
 }
 
 type LoadState =
@@ -25,7 +28,7 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'loaded'; items: EnrollmentListItem[] }
 
-export function MyEnrollmentsPage({ token }: MyEnrollmentsPageProps) {
+export function MyEnrollmentsPage({ token, onSelectCourse }: MyEnrollmentsPageProps) {
   const navigate = useNavigate()
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [cancellingId, setCancellingId] = useState<number | null>(null)
@@ -84,16 +87,38 @@ export function MyEnrollmentsPage({ token }: MyEnrollmentsPageProps) {
               {/* REQ-CNL-008 — 응답 순서를 그대로 표시한다(재정렬 금지). */}
               {view.items.map((item) => (
                 <li key={item.enrollmentId}>
-                  <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                      {item.courseTitle} — {item.status} · 신청일 {item.enrolledAt}
+                  <Card
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onSelectCourse(item.courseId)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        onSelectCourse(item.courseId)
+                      }
+                    }}
+                    className="flex cursor-pointer flex-wrap items-center justify-between gap-3 p-4"
+                  >
+                    <span className="flex flex-col gap-1 text-sm text-neutral-700 dark:text-neutral-300">
+                      <span>
+                        {item.courseTitle} — {item.status} · 신청일 {item.enrolledAt}
+                      </span>
+                      <span className="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
+                        정원 {item.capacity} · 확정 {item.enrolledCount} · 잔여 {item.remainingCapacity}
+                        <Badge variant={item.courseStatus === 'CLOSED' ? 'neutral' : 'accent'}>
+                          {item.courseStatus}
+                        </Badge>
+                      </span>
                     </span>
                     <Button
                       type="button"
                       variant="destructive"
                       size="sm"
                       disabled={cancellingId === item.enrollmentId}
-                      onClick={() => void handleCancel(item)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleCancel(item)
+                      }}
                     >
                       취소
                     </Button>
